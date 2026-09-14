@@ -1,683 +1,443 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>2027 Annual Leave Wish Selection</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f3f4f6; }
-        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-        .day-cell {
-            min-height: 70px; padding: 4px; font-size: 11px;
-            border: 1px solid #e5e7eb; background: white;
-            position: relative; cursor: pointer; transition: all 0.15s;
-        }
-        .day-cell:hover:not(.disabled):not(.winner) { background: #f9fafb; }
-        .day-cell.weekend { background: #fef2f2; color: #b91c1c; }
-        .day-cell.disabled { background: #f3f4f6; color: #d1d5db; cursor: not-allowed; }
-        .day-cell.winner { background: #dcfce7 !important; border-color: #22c55e !important; }
-        .day-cell.selected-c1 { background: #dbeafe !important; border-color: #3b82f6 !important; }
-        .day-cell.selected-c2 { background: #f3e8ff !important; border-color: #a855f7 !important; }
-        .day-cell.selected-c3 { background: #ffedd5 !important; border-color: #f97316 !important; }
-        .day-cell.selected-c4 { background: #d1fae5 !important; border-color: #10b981 !important; }
-        .day-cell.selected-c5 { background: #fce7f3 !important; border-color: #ec4899 !important; }
-        .day-cell.conflict { box-shadow: inset 0 0 0 2px #ef4444; }
-        .tag { display: inline-block; padding: 1px 4px; border-radius: 3px; font-size: 9px; font-weight: bold; margin-top: 2px; line-height: 1.2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .tag-winner { background: #22c55e; color: white; }
-        .tag-c1 { background: #3b82f6; color: white; }
-        .tag-c2 { background: #a855f7; color: white; }
-        .tag-c3 { background: #f97316; color: white; }
-        .tag-c4 { background: #10b981; color: white; }
-        .tag-c5 { background: #ec4899; color: white; }
-        .month-card { break-inside: avoid; }
-        /* Mini calendar for date picker */
-        .mini-cal { width: 280px; }
-        .mini-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
-        .mini-day { padding: 6px 2px; text-align: center; font-size: 12px; cursor: pointer; border-radius: 4px; }
-        .mini-day:hover:not(.mini-disabled) { background: #e5e7eb; }
-        .mini-day.mini-selected { background: #3b82f6 !important; color: white !important; }
-        .mini-day.mini-disabled { color: #d1d5db; cursor: default; }
-        .mini-day.mini-weekend { color: #b91c1c; }
-        @media print { .no-print { display: none !important; } }
-    </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>2027 Annual Leave Wish Selection</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .cal-cell { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; font-size: 0.85rem; transition: all 0.15s; }
+  .cal-cell:hover:not(.disabled) { background: #dbeafe; }
+  .cal-cell.selected { background: #3b82f6; color: white; }
+  .cal-cell.conflict { background: #fca5a5; color: #991b1b; }
+  .cal-cell.weekend { color: #dc2626; }
+  .cal-cell.disabled { opacity: 0.3; cursor: not-allowed; }
+  .choice-card { border-left: 4px solid #3b82f6; }
+  .fade-in { animation: fadeIn 0.3s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+</style>
 </head>
 <body>
-    <div id="root"></div>
-
-    <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
-
-        const YEAR = 2027;
-        const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-        const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-        const WEEKDAYS_FULL = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-        const STORAGE_KEY = "leave_2027_v9";
-        const ADMIN_PASS = "7851";
-        const CHOICE_KEYS = ["c1","c2","c3","c4","c5"];
-        const CHOICE_LABELS = ["1st Choice","2nd Choice","3rd Choice","4th Choice","5th Choice"];
-        const CHOICE_COLORS = ["blue","purple","orange","emerald","pink"];
-        const MAX_DAYS_PER_CHOICE = 5;
-
-        const getDaysInMonth = (mi) => new Date(YEAR, mi + 1, 0).getDate();
-        const getDayOfWeekSunFirst = (d, mi) => new Date(YEAR, mi, d).getDay();
-        const isWeekend = (d, mi) => { const dow = getDayOfWeekSunFirst(d, mi); return dow === 0 || dow === 6; };
-        const fmtDate = (d, mi) => `${YEAR}-${String(mi+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        const parseDate = (str) => { const p = str.split('-'); return { y: +p[0], m: +p[1]-1, d: +p[2] }; };
-
-        // Parse short format like "04Sep-08Sep" or "04Sep"
-        const parseShortFormat = (input) => {
-            const cleaned = input.trim();
-            if (!cleaned) return [];
-            // Range: 04Sep-08Sep or 04Sep-08Oct
-            const rangeMatch = cleaned.match(/^(\d{1,2})(\w{3})\s*[-–to]\s*(\d{1,2})(\w{3})$/i);
-            if (rangeMatch) {
-                const startDay = parseInt(rangeMatch[1]);
-                const startMonStr = rangeMatch[2].toLowerCase();
-                const endDay = parseInt(rangeMatch[3]);
-                const endMonStr = rangeMatch[4].toLowerCase();
-                const startMi = MONTH_SHORT.findIndex(m => m.toLowerCase() === startMonStr);
-                const endMi = MONTH_SHORT.findIndex(m => m.toLowerCase() === endMonStr);
-                if (startMi === -1 || endMi === -1) return [];
-                const dates = [];
-                let curMi = startMi, curD = startDay;
-                const maxIter = 40;
-                let iter = 0;
-                while (iter < maxIter) {
-                    dates.push(fmtDate(curD, curMi));
-                    if (curMi === endMi && curD === endDay) break;
-                    curD++;
-                    if (curD > getDaysInMonth(curMi)) { curD = 1; curMi++; }
-                    if (curMi > 11) break;
-                    iter++;
-                }
-                return dates;
-            }
-            // Single: 04Sep
-            const singleMatch = cleaned.match(/^(\d{1,2})(\w{3})$/i);
-            if (singleMatch) {
-                const day = parseInt(singleMatch[1]);
-                const monStr = singleMatch[2].toLowerCase();
-                const mi = MONTH_SHORT.findIndex(m => m.toLowerCase() === monStr);
-                if (mi === -1) return [];
-                return [fmtDate(day, mi)];
-            }
-            return [];
-        };
-
-        // --- Mini Calendar Picker Component ---
-        const MiniCalendar = ({ selectedDates, onToggleDate, weekendBlocked }) => {
-            const [viewMonth, setViewMonth] = useState(0);
-
-            const daysInMonth = getDaysInMonth(viewMonth);
-            const firstOffset = getDayOfWeekSunFirst(1, viewMonth);
-            const cells = [];
-
-            for (let p = 0; p < firstOffset; p++) {
-                cells.push(<div key={`p${p}`} className="mini-day mini-disabled"></div>);
-            }
-
-            for (let d = 1; d <= daysInMonth; d++) {
-                const dateStr = fmtDate(d, viewMonth);
-                const we = isWeekend(d, viewMonth);
-                const isSel = selectedDates.includes(dateStr);
-                const isDis = we && weekendBlocked;
-                let cls = "mini-day";
-                if (we) cls += " mini-weekend";
-                if (isSel) cls += " mini-selected";
-                if (isDis) cls += " mini-disabled";
-
-                cells.push(
-                    <div key={d} className={cls} onClick={() => !isDis && onToggleDate(dateStr)}>
-                        {d}
-                    </div>
-                );
-            }
-
-            return (
-                <div className="mini-cal bg-white border rounded-lg p-3 shadow-sm mt-2">
-                    <div className="flex justify-between items-center mb-2">
-                        <button onClick={() => setViewMonth(v => v > 0 ? v-1 : 11)} className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200 text-sm font-bold">◀</button>
-                        <span className="font-bold text-sm text-gray-800">{MONTHS[viewMonth]} {YEAR}</span>
-                        <button onClick={() => setViewMonth(v => v < 11 ? v+1 : 0)} className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200 text-sm font-bold">▶</button>
-                    </div>
-                    <div className="mini-cal-grid mb-1">
-                        {WEEKDAYS_FULL.map(w => <div key={w} className={`text-[10px] font-bold text-center ${w==='Sun'||w==='Sat'?'text-red-400':'text-gray-500'}`}>{w.charAt(0)}</div>)}
-                    </div>
-                    <div className="mini-cal-grid">{cells}</div>
-                </div>
-            );
-        };
-
-        // --- Main Calendar Component ---
-        const MonthCal = ({ monthIndex, apps, winners, mode, currentUser, activeChoice, onToggle, weekendRestricted }) => {
-            const daysInMonth = getDaysInMonth(monthIndex);
-            const firstDayOffset = getDayOfWeekSunFirst(1, monthIndex);
-            const cells = [];
-
-            for (let p = 0; p < firstDayOffset; p++) {
-                cells.push(<div key={`pad-${p}`} className="day-cell disabled" style={{background:'#f9fafb',border:'none'}}></div>);
-            }
-
-            for (let d = 1; d <= daysInMonth; d++) {
-                const dateStr = fmtDate(d, monthIndex);
-                const we = isWeekend(d, monthIndex);
-                const isBlocked = mode === 'apply' && we && weekendRestricted;
-                const isWinner = winners.some(w => w.date === dateStr);
-                const winnerName = isWinner ? winners.find(w => w.date === dateStr)?.name : null;
-
-                const selections = [];
-                apps.forEach(app => {
-                    CHOICE_KEYS.forEach((ck, ci) => {
-                        if (app[ck] && app[ck].includes(dateStr)) {
-                            selections.push({ name: app.name, type: `C${ci+1}`, choiceIdx: ci });
-                        }
-                    });
-                });
-
-                const myActiveSel = currentUser ? (() => {
-                    const app = apps.find(a => a.name.toLowerCase() === currentUser.toLowerCase());
-                    if (!app || !app[activeChoice]) return null;
-                    return app[activeChoice].includes(dateStr) ? { type: activeChoice.toUpperCase() } : null;
-                })() : null;
-
-                const others = selections.filter(s => !currentUser || s.name.toLowerCase() !== currentUser.toLowerCase());
-                const hasConflict = mode === 'apply' && others.length > 0 && !isWinner;
-
-                let cellClass = "day-cell";
-                if (we) cellClass += " weekend";
-                if (isBlocked) cellClass += " disabled";
-                if (isWinner) cellClass += " winner";
-                else if (myActiveSel) cellClass += ` selected-${activeChoice}`;
-                if (hasConflict) cellClass += " conflict";
-
-                const canClick = mode === 'apply' && !isWinner && !isBlocked;
-
-                cells.push(
-                    <div key={d} className={cellClass} onClick={() => canClick && onToggle(dateStr)}>
-                        <div className="font-bold text-gray-700">{d}</div>
-                        {isWinner && <div className="tag tag-winner">✓ {winnerName}</div>}
-                        {!isWinner && mode === 'view' && selections.slice(0, 4).map((s, i) => (
-                            <div key={i} className={`tag tag-${s.type.toLowerCase()}`} title={`${s.name} (${s.type})`}>
-                                {s.name.split(' ')[0]}
-                            </div>
-                        ))}
-                        {!isWinner && mode === 'view' && selections.length > 4 && (
-                            <div className="text-[9px] text-gray-500 mt-1">+{selections.length - 4}</div>
-                        )}
-                        {mode === 'apply' && myActiveSel && !isWinner && (
-                            <div className={`tag tag-${activeChoice}`}>You</div>
-                        )}
-                        {hasConflict && <div className="text-[9px] text-red-600 font-bold mt-1">Conflict</div>}
-                    </div>
-                );
-            }
-
-            return (
-                <div className="month-card bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                    <h3 className="text-base font-bold text-gray-800 mb-2 pb-2 border-b">{MONTHS[monthIndex]}</h3>
-                    <div className="cal-grid mb-1">
-                        {WEEKDAYS_FULL.map(w => <div key={w} className={`text-[10px] font-bold text-center py-1 ${w==='Sun'||w==='Sat'?'text-red-400':'text-gray-500'}`}>{w}</div>)}
-                    </div>
-                    <div className="cal-grid">{cells}</div>
-                </div>
-            );
-        };
-
-        function App() {
-            const [view, setView] = useState("summary");
-            const [data, setData] = useState({ applications: [], winners: [] });
-            const [adminAuth, setAdminAuth] = useState(false);
-            const [adminPass, setAdminPass] = useState("");
-
-            useEffect(() => {
-                try {
-                    const saved = localStorage.getItem(STORAGE_KEY);
-                    if (saved) setData(JSON.parse(saved));
-                } catch(e) { console.error(e); }
-            }, []);
-
-            const save = (nd) => {
-                setData(nd);
-                try { localStorage.setItem(STORAGE_KEY, JSON.stringify(nd)); } catch(e) { alert("Storage full!"); }
-            };
-
-            // --- APPLICATION STATE ---
-            const [appName, setAppName] = useState("");
-            const [choices, setChoices] = useState({ c1: [], c2: [], c3: [], c4: [], c5: [] });
-            const [activeChoice, setActiveChoice] = useState("c1");
-            const [manualInput, setManualInput] = useState({ c1: "", c2: "", c3: "", c4: "", c5: "" });
-            const [showMiniCal, setShowMiniCal] = useState(false);
-
-            const activeCount = choices[activeChoice]?.length || 0;
-            const weekendRestricted = activeCount >= 5;
-
-            // Amendment 2: Load existing application when name matches
-            useEffect(() => {
-                if (!appName.trim()) return;
-                const existing = data.applications.find(a => a.name.toLowerCase() === appName.trim().toLowerCase());
-                if (existing) {
-                    setChoices({
-                        c1: existing.c1 || [], c2: existing.c2 || [], c3: existing.c3 || [],
-                        c4: existing.c4 || [], c5: existing.c5 || []
-                    });
-                }
-            }, [appName, data.applications]);
-
-            const handleMiniCalToggle = (dateStr) => {
-                if (!appName.trim()) { alert("Enter your name first!"); return; }
-                const cur = [...(choices[activeChoice] || [])];
-                const idx = cur.indexOf(dateStr);
-                if (idx === -1) {
-                    if (cur.length >= MAX_DAYS_PER_CHOICE) { alert(`Max ${MAX_DAYS_PER_CHOICE} days per choice.`); return; }
-                    cur.push(dateStr);
-                } else {
-                    cur.splice(idx, 1);
-                }
-                cur.sort();
-                setChoices({ ...choices, [activeChoice]: cur });
-            };
-
-            const handleManualSubmit = () => {
-                if (!appName.trim()) { alert("Enter your name first!"); return; }
-                const dates = parseShortFormat(manualInput[activeChoice]);
-                if (dates.length === 0) { alert("Invalid format. Use: 04Sep-08Sep or 04Sep"); return; }
-
-                const currentChoiceDates = choices[activeChoice] || [];
-                const merged = [...new Set([...currentChoiceDates, ...dates])];
-                if (merged.length > MAX_DAYS_PER_CHOICE) {
-                    alert(`Max ${MAX_DAYS_PER_CHOICE} days per choice. Currently ${currentChoiceDates.length} days selected.`);
-                    return;
-                }
-
-                if (merged.length === 5) {
-                    const hasWeekend = merged.some(ds => { const p = parseDate(ds); return isWeekend(p.d, p.m); });
-                    if (hasWeekend) { alert("Cannot include weekends when a single choice reaches 5 days."); return; }
-                }
-
-                setChoices({ ...choices, [activeChoice]: merged.sort() });
-                setManualInput({ ...manualInput, [activeChoice]: "" });
-            };
-
-            const handleMainCalToggle = (dateStr) => {
-                if (!appName.trim()) { alert("Enter your name first!"); return; }
-                const p = parseDate(dateStr);
-                const we = isWeekend(p.d, p.m);
-                if (we && activeCount >= 4) { alert("Weekends cannot be selected when this choice reaches 5 days."); return; }
-
-                const cur = [...(choices[activeChoice] || [])];
-                const idx = cur.indexOf(dateStr);
-                if (idx === -1) {
-                    if (cur.length >= MAX_DAYS_PER_CHOICE) { alert(`Max ${MAX_DAYS_PER_CHOICE} days per choice.`); return; }
-                    cur.push(dateStr);
-                } else {
-                    cur.splice(idx, 1);
-                }
-                cur.sort();
-                setChoices({ ...choices, [activeChoice]: cur });
-            };
-
-            // Amendment 2: Clear specific choice
-            const clearChoice = (key) => {
-                if (confirm(`Clear all dates in ${CHOICE_LABELS[CHOICE_KEYS.indexOf(key)]}?`)) {
-                    setChoices({ ...choices, [key]: [] });
-                }
-            };
-
-            const submitApp = () => {
-                if (!appName.trim()) return alert("Name required");
-                const totalAll = CHOICE_KEYS.reduce((sum, k) => sum + (choices[k]?.length || 0), 0);
-                if (totalAll === 0) return alert("Select at least 1 day in any choice");
-
-                for (const k of CHOICE_KEYS) {
-                    const dates = choices[k] || [];
-                    if (dates.length === 5) {
-                        const hasWeekend = dates.some(ds => { const p = parseDate(ds); return isWeekend(p.d, p.m); });
-                        if (hasWeekend) { alert(`${CHOICE_LABELS[CHOICE_KEYS.indexOf(k)]} has 5 days including weekends. Please adjust.`); return; }
-                    }
-                }
-
-                const existing = data.applications.find(a => a.name.toLowerCase() === appName.trim().toLowerCase());
-                const isNew = !existing;
-                const version = isNew ? 1 : (existing.version || 1) + 1;
-
-                const newApp = {
-                    id: Date.now(),
-                    name: appName.trim(),
-                    c1: choices.c1 || [], c2: choices.c2 || [], c3: choices.c3 || [],
-                    c4: choices.c4 || [], c5: choices.c5 || [],
-                    ts: new Date().toISOString(),
-                    version: version,
-                    isFirst: isNew
-                };
-
-                const filtered = data.applications.filter(a => a.name.toLowerCase() !== appName.trim().toLowerCase());
-                const cleanWinners = data.winners.filter(w => w.name.toLowerCase() !== appName.trim().toLowerCase());
-                save({ applications: [...filtered, newApp], winners: cleanWinners });
-
-                alert(isNew ? "✅ Application submitted!" : `✅ Amended (v${version}). Previous replaced.`);
-                setChoices({ c1: [], c2: [], c3: [], c4: [], c5: [] });
-                setAppName("");
-                setManualInput({ c1: "", c2: "", c3: "", c4: "", c5: "" });
-                setActiveChoice("c1");
-                setShowMiniCal(false);
-                setView("summary");
-            };
-
-            // --- ADMIN ---
-            const [adminFilter, setAdminFilter] = useState("");
-
-            const approveChoice = (app, choiceKey) => {
-                const dates = app[choiceKey];
-                if (!dates || !dates.length) return;
-                const cleanWinners = data.winners.filter(w => !dates.includes(w.date));
-                const newWinners = dates.map(d => ({ date: d, name: app.name, choice: choiceKey }));
-                save({ ...data, winners: [...cleanWinners, ...newWinners] });
-                alert(`✅ Approved ${app.name}'s ${choiceKey.toUpperCase()} (${dates.length} days)`);
-            };
-
-            const revokeWinner = (name, dates) => {
-                const clean = data.winners.filter(w => !(w.name === name && dates.includes(w.date)));
-                save({ ...data, winners: clean });
-            };
-
-            const clearAllData = () => {
-                if (confirm("⚠ Delete ALL applications and approvals?")) {
-                    if (confirm("FINAL CONFIRMATION: This cannot be undone.")) {
-                        save({ applications: [], winners: [] });
-                        alert("✅ All data cleared.");
-                    }
-                }
-            };
-
-            const filteredApps = useMemo(() => {
-                let list = data.applications;
-                if (adminFilter) list = list.filter(a => a.name.toLowerCase().includes(adminFilter.toLowerCase()));
-                return list.sort((a,b) => a.name.localeCompare(b.name));
-            }, [data.applications, adminFilter]);
-
-            // ==================== SUMMARY VIEW ====================
-            if (view === "summary") {
-                return (
-                    <div className="max-w-[1600px] mx-auto p-4 md:p-6">
-                        <div className="flex flex-wrap justify-between items-center gap-4 mb-8 no-print">
-                            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">2027 Leave Wish Summary</h1>
-                            <div className="flex gap-3">
-                                <button onClick={() => setView("apply")} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold shadow-md">Apply for Leave</button>
-                                <button onClick={() => { setAdminAuth(false); setView("admin"); }} className="px-5 py-2.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 font-semibold shadow-md">Admin Panel</button>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-3 mb-6 text-xs font-bold no-print">
-                            <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full">✓ Approved</span>
-                            <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full">1st</span>
-                            <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full">2nd</span>
-                            <span className="px-3 py-1 bg-orange-100 text-orange-800 rounded-full">3rd</span>
-                            <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full">4th</span>
-                            <span className="px-3 py-1 bg-pink-100 text-pink-800 rounded-full">5th</span>
-                            <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full">Sat/Sun</span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-10">
-                            {MONTHS.map((_, i) => (
-                                <MonthCal key={i} monthIndex={i} apps={data.applications} winners={data.winners} mode="view" />
-                            ))}
-                        </div>
-                    </div>
-                );
-            }
-
-            // ==================== APPLY VIEW ====================
-            if (view === "apply") {
-                const myFakeApp = appName.trim() ? {
-                    name: appName.trim(),
-                    c1: choices.c1, c2: choices.c2, c3: choices.c3, c4: choices.c4, c5: choices.c5
-                } : null;
-
-                const appsForCal = appName.trim() ? (() => {
-                    const base = data.applications.filter(a => a.name.toLowerCase() !== appName.trim().toLowerCase());
-                    return [...base, myFakeApp];
-                })() : data.applications;
-
-                const existingApp = appName.trim() ? data.applications.find(a => a.name.toLowerCase() === appName.trim().toLowerCase()) : null;
-
-                return (
-                    <div className="max-w-[1600px] mx-auto p-4 md:p-6">
-                        <button onClick={() => setView("summary")} className="mb-6 text-gray-600 hover:text-gray-900 font-medium no-print">← Back to Summary</button>
-
-                        <div className="bg-white rounded-xl shadow-lg p-6 md:p-8 mb-6 sticky top-4 z-40 no-print border-2 border-blue-100">
-                            <h1 className="text-2xl font-bold mb-5 text-gray-900">Leave Application</h1>
-
-                            <div className="mb-5">
-                                <label className="block text-sm font-bold text-gray-700 mb-2">Full Name *</label>
-                                <input type="text" value={appName} onChange={(e) => setAppName(e.target.value)}
-                                    placeholder="Type your full name here"
-                                    className="w-full md:w-1/2 px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-lg" />
-                                {/* Amendment 2: Show if editing existing */}
-                                {existingApp && (
-                                    <div className="mt-2 text-sm text-yellow-700 bg-yellow-50 px-3 py-2 rounded-lg border border-yellow-200">
-                                        📝 Editing existing application (v{existingApp.version}). Changes will replace your previous submission.
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* 5 Choice Tabs */}
-                            <div className="flex flex-wrap gap-2 mb-4">
-                                {CHOICE_KEYS.map((k, i) => (
-                                    <button key={k} onClick={() => { setActiveChoice(k); setShowMiniCal(false); }}
-                                        className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all ${
-                                            activeChoice === k
-                                            ? `bg-${CHOICE_COLORS[i]}-600 text-white shadow-md ring-2 ring-offset-2 ring-${CHOICE_COLORS[i]}-400`
-                                            : `bg-${CHOICE_COLORS[i]}-50 text-${CHOICE_COLORS[i]}-700 hover:bg-${CHOICE_COLORS[i]}-100`
-                                        }`}>
-                                        {CHOICE_LABELS[i]} ({choices[k]?.length || 0}/{MAX_DAYS_PER_CHOICE})
-                                    </button>
-                                ))}
-                            </div>
-
-                            {/* Amendment 2: Adjust / Cancel buttons for active choice */}
-                            <div className="flex flex-wrap gap-2 mb-4">
-                                <button onClick={() => setShowMiniCal(!showMiniCal)}
-                                    className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-bold hover:bg-gray-800">
-                                    📅 {showMiniCal ? 'Hide' : 'Show'} Mini Calendar
-                                </button>
-                                <button onClick={() => clearChoice(activeChoice)}
-                                    disabled={!choices[activeChoice] || choices[activeChoice].length === 0}
-                                    className="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-bold hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed">
-                                    ✕ Clear {CHOICE_LABELS[CHOICE_KEYS.indexOf(activeChoice)].split(' ')[0]} Choice
-                                </button>
-                            </div>
-
-                            {/* Mini Calendar Picker (Amendment 1) */}
-                            {showMiniCal && (
-                                <div className="mb-4">
-                                    <MiniCalendar
-                                        selectedDates={choices[activeChoice] || []}
-                                        onToggleDate={handleMiniCalToggle}
-                                        weekendBlocked={weekendRestricted}
-                                    />
-                                </div>
-                            )}
-
-                            {/* Text Input with short format (Amendment 1) */}
-                            <div className="mb-4 p-4 bg-gray-50 rounded-lg border">
-                                <label className="block text-sm font-bold text-gray-700 mb-2">
-                                    Or type dates for <span className={`text-${CHOICE_COLORS[CHOICE_KEYS.indexOf(activeChoice)]}-600`}>{CHOICE_LABELS[CHOICE_KEYS.indexOf(activeChoice)]}</span>:
-                                </label>
-                                <div className="flex gap-2">
-                                    <input type="text" value={manualInput[activeChoice]}
-                                        onChange={(e) => setManualInput({...manualInput, [activeChoice]: e.target.value})}
-                                        placeholder="e.g. 04Sep-08Sep or 04Sep"
-                                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
-                                    <button onClick={handleManualSubmit}
-                                        className="px-4 py-2 bg-gray-800 text-white rounded-lg font-bold text-sm hover:bg-gray-900">
-                                        Add
-                                    </button>
-                                </div>
-                                <p className="text-xs text-gray-500 mt-2">Format: DDmmm-DDmmm (e.g. 04Sep-08Sep) or DDmmm (e.g. 04Sep). Each choice: max {MAX_DAYS_PER_CHOICE} days independently.</p>
-                            </div>
-
-                            <div className="text-sm text-gray-600 mb-3">
-                                <strong>{CHOICE_LABELS[CHOICE_KEYS.indexOf(activeChoice)]}</strong>: {activeCount}/{MAX_DAYS_PER_CHOICE} days •
-                                {weekendRestricted
-                                    ? <span className="text-red-600 font-bold ml-1">⚠ Weekends blocked (5-day limit)</span>
-                                    : <span className="text-green-600 ml-1">✓ Weekends available</span>
-                                }
-                            </div>
-                        </div>
-
-                        {/* Main Full Calendar */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-20">
-                            {MONTHS.map((_, i) => (
-                                <MonthCal key={i} monthIndex={i} apps={appsForCal} winners={data.winners}
-                                    mode="apply" currentUser={appName} activeChoice={activeChoice}
-                                    onToggle={handleMainCalToggle} weekendRestricted={weekendRestricted} />
-                            ))}
-                        </div>
-
-                        <div className="fixed bottom-6 right-6 z-50 no-print">
-                            <button onClick={submitApp}
-                                disabled={!appName.trim() || CHOICE_KEYS.every(k => !choices[k] || choices[k].length === 0)}
-                                className="px-8 py-4 bg-green-600 text-white rounded-full shadow-2xl hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-lg transition-transform hover:scale-105 active:scale-95">
-                                {existingApp ? 'Update Application' : 'Submit Application'}
-                            </button>
-                        </div>
-                    </div>
-                );
-            }
-
-            // ==================== ADMIN VIEW ====================
-            if (view === "admin") {
-                if (!adminAuth) {
-                    return (
-                        <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-                            <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
-                                <div className="text-4xl mb-4">🔒</div>
-                                <h2 className="text-2xl font-bold mb-6 text-gray-900">Admin Access</h2>
-                                <input type="password" value={adminPass}
-                                    onChange={(e) => setAdminPass(e.target.value)}
-                                    onKeyDown={(e) => e.key === "Enter" && (adminPass === ADMIN_PASS ? (setAdminAuth(true), setAdminPass("")) : alert("❌ Wrong password"))}
-                                    placeholder="Enter password"
-                                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg mb-4 text-center text-xl tracking-[0.3em]" autoFocus />
-                                <button onClick={() => adminPass === ADMIN_PASS ? (setAdminAuth(true), setAdminPass("")) : alert("❌ Wrong password")}
-                                    className="w-full py-3 bg-gray-900 text-white rounded-lg font-bold hover:bg-gray-800 transition-colors">
-                                    Unlock Dashboard
-                                </button>
-                                <button onClick={() => setView("summary")} className="mt-6 text-gray-500 hover:text-gray-700 text-sm">← Back to Summary</button>
-                            </div>
-                        </div>
-                    );
-                }
-
-                return (
-                    <div className="max-w-[1600px] mx-auto p-4 md:p-6">
-                        <div className="flex flex-wrap justify-between items-center gap-4 mb-8">
-                            <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-                            <div className="flex gap-3">
-                                <button onClick={() => setView("summary")} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-medium">Public Summary</button>
-                                <button onClick={() => { setAdminAuth(false); setAdminPass(""); }} className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 font-medium">Logout</button>
-                            </div>
-                        </div>
-
-                        <div className="mb-6 flex justify-end">
-                            <button onClick={clearAllData}
-                                className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-bold text-sm shadow">
-                                🗑 Clear All Data
-                            </button>
-                        </div>
-
-                        <div className="bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                            <span className="font-bold text-gray-700 whitespace-nowrap">Filter:</span>
-                            <input type="text" value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)}
-                                placeholder="Search applicant name..."
-                                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" autoFocus />
-                            <span className="text-sm text-gray-500 whitespace-nowrap">{filteredApps.length} / {data.applications.length}</span>
-                        </div>
-
-                        <div className="space-y-4 mb-12">
-                            {filteredApps.map(app => {
-                                const wonDates = data.winners.filter(w => w.name === app.name).map(w => w.date);
-                                const totalReq = CHOICE_KEYS.reduce((s,k) => s + (app[k]?.length||0), 0);
-                                const approvedCount = wonDates.length;
-                                const isFinalized = approvedCount > 0 && approvedCount >= totalReq;
-                                const versionLabel = app.isFirst !== false && app.version === 1
-                                    ? <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-bold ml-2">FIRST SUBMISSION</span>
-                                    : <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs font-bold ml-2">AMENDMENT v{app.version || '?'}</span>;
-
-                                return (
-                                    <div key={app.id} className={`bg-white rounded-xl shadow-sm border-l-4 p-5 transition-all ${isFinalized ? 'border-green-500 bg-green-50/30' : 'border-blue-500'}`}>
-                                        <div className="flex flex-wrap justify-between items-start gap-3 mb-4">
-                                            <div className="flex items-center flex-wrap gap-2">
-                                                <h3 className="text-xl font-bold text-gray-900">{app.name}</h3>
-                                                {versionLabel}
-                                                {isFinalized && <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-bold">✓ FINALIZED</span>}
-                                            </div>
-                                            <p className="text-xs text-gray-500">Submitted: {new Date(app.ts).toLocaleString()}</p>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-                                            {CHOICE_KEYS.map((key, ci) => {
-                                                const dates = app[key] || [];
-                                                if (!dates.length) return null;
-                                                const color = CHOICE_COLORS[ci];
-                                                const label = CHOICE_LABELS[ci];
-                                                const isApproved = dates.length > 0 && dates.every(d => wonDates.includes(d));
-
-                                                return (
-                                                    <div key={key} className={`p-3 rounded-lg border bg-${color}-50/50 border-${color}-200`}>
-                                                        <div className="flex justify-between items-center mb-2">
-                                                            <span className={`font-bold text-${color}-700 text-xs`}>{label}</span>
-                                                            <span className="text-xs text-gray-500">{dates.length}d</span>
-                                                        </div>
-                                                        <div className="text-[11px] text-gray-700 mb-2 break-words leading-relaxed">{dates.join(', ')}</div>
-
-                                                        {!isApproved ? (
-                                                            <button onClick={() => approveChoice(app, key)}
-                                                                className={`w-full py-1.5 bg-${color}-600 text-white rounded font-bold text-[10px] hover:bg-${color}-700 transition-colors`}>
-                                                                ✓ APPROVE
-                                                            </button>
-                                                        ) : (
-                                                            <button onClick={() => revokeWinner(app.name, dates)}
-                                                                className="w-full py-1.5 bg-gray-200 text-gray-700 rounded font-bold text-[10px] hover:bg-red-100 hover:text-red-700 transition-colors">
-                                                                ✕ REVOKE
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-
-                            {filteredApps.length === 0 && (
-                                <div className="text-center py-16 text-gray-400 bg-white rounded-xl shadow-sm">
-                                    {data.applications.length === 0 ? "No applications yet" : `No match for "${adminFilter}"`}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="border-t-4 border-gray-300 pt-8">
-                            <h2 className="text-2xl font-bold text-gray-800 mb-4">Live Summary Preview</h2>
-                            <div className="flex flex-wrap gap-3 mb-4 text-xs font-bold">
-                                <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full">✓ Approved</span>
-                                {CHOICE_LABELS.map((l,i) => <span key={i} className={`px-3 py-1 bg-${CHOICE_COLORS[i]}-100 text-${CHOICE_COLORS[i]}-800 rounded-full`}>{l.split(' ')[0]}</span>)}
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                {MONTHS.map((_, i) => (
-                                    <MonthCal key={i} monthIndex={i} apps={data.applications} winners={data.winners} mode="view" />
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyBvI2eL9FdVJkqPHcEJNo5gPjBuSo2bhPc",
+  authDomain: "al-biding.firebaseapp.com",
+  databaseURL: "https://al-biding-default-rtdb.firebaseio.com",
+  projectId: "al-biding",
+  storageBucket: "al-biding.firebasestorage.app",
+  messagingSenderId: "251488619983",
+  appId: "1:251488619983:web:c701f8ad4c5e5054d016ba",
+  measurementId: "G-TXESVYQWTJ"
+};
+
+// Initialize Firebase (only once)
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+const db = firebase.database();
+const LEAVE_REF = db.ref('leave_applications');
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const ADMIN_PASS = '7851';
+
+function parseDateRange(str) {
+  if (!str || typeof str !== 'string') return null;
+  const match = str.match(/^(\d{1,2})([A-Za-z]{3})-(\d{1,2})([A-Za-z]{3})$/);
+  if (!match) return null;
+  const [, d1, m1, d2, m2] = match;
+  const mi1 = MONTHS.findIndex(m => m.toLowerCase() === m1.toLowerCase());
+  const mi2 = MONTHS.findIndex(m => m.toLowerCase() === m2.toLowerCase());
+  if (mi1 === -1 || mi2 === -1) return null;
+  const start = new Date(2027, mi1, parseInt(d1));
+  const end = new Date(2027, mi2, parseInt(d2));
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+  return { start, end, days: Math.round((end - start) / 86400000) + 1 };
+}
+
+function formatDateRange(start, end) {
+  const d1 = String(start.getDate()).padStart(2,'0');
+  const m1 = MONTHS[start.getMonth()];
+  const d2 = String(end.getDate()).padStart(2,'0');
+  const m2 = MONTHS[end.getMonth()];
+  return `${d1}${m1}-${d2}${m2}`;
+}
+
+function getDatesInRange(start, end) {
+  const dates = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    dates.push(new Date(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
+function hasWeekendViolation(start, end) {
+  const days = Math.round((end - start) / 86400000) + 1;
+  if (days < 5) return false;
+  const cur = new Date(start);
+  while (cur <= end) {
+    const dow = cur.getDay();
+    if (dow === 0 || dow === 6) return true;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return false;
+}
+
+function App() {
+  const [view, setView] = useState('apply');
+  const [name, setName] = useState('');
+  const [choices, setChoices] = useState(Array(5).fill(''));
+  const [allApps, setAllApps] = useState([]);
+  const [adminPass, setAdminPass] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [filterTitle, setFilterTitle] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  // Load data from Firebase on mount
+  useEffect(() => {
+    const unsub = LEAVE_REF.on('value', snap => {
+      const val = snap.val() || {};
+      const list = Object.entries(val).map(([id, data]) => ({ id, ...data }));
+      list.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
+      setAllApps(list);
+      setLoading(false);
+    });
+    return () => LEAVE_REF.off('value', unsub);
+  }, []);
+
+  const saveChoice = async (idx, val) => {
+    const newChoices = [...choices];
+    newChoices[idx] = val;
+    setChoices(newChoices);
+  };
+
+  const submitApp = async () => {
+    if (!name.trim()) return alert('Please enter your name');
+    const validChoices = choices.filter(c => c.trim());
+    if (validChoices.length === 0) return alert('Please select at least one choice');
+
+    for (let i = 0; i < validChoices.length; i++) {
+      const parsed = parseDateRange(validChoices[i]);
+      if (!parsed) return alert(`Invalid format in choice ${i+1}. Use DDMMM-DDMMM like 04Sep-08Sep`);
+      if (parsed.days > 5) return alert(`Choice ${i+1} exceeds 5 days`);
+      if (hasWeekendViolation(parsed.start, parsed.end)) {
+        return alert(`Choice ${i+1}: 5-day selections cannot include Sat/Sun`);
+      }
+    }
+
+    const record = {
+      name: name.trim(),
+      choices: validChoices,
+      timestamp: Date.now(),
+      version: 'amendment',
+      status: 'pending'
+    };
+
+    await LEAVE_REF.push(record);
+    setChoices(Array(5).fill(''));
+    alert('Application submitted successfully!');
+  };
+
+  const cancelChoice = (idx) => {
+    const nc = [...choices];
+    nc[idx] = '';
+    setChoices(nc);
+  };
+
+  const adminLogin = () => {
+    if (adminPass === ADMIN_PASS) setIsAdmin(true);
+    else alert('Wrong password');
+  };
+
+  const clearAllData = async () => {
+    if (confirm('Clear ALL application data? This cannot be undone.')) {
+      await LEAVE_REF.remove();
+    }
+  };
+
+  const approveApp = async (id) => {
+    await LEAVE_REF.child(id).update({ status: 'approved' });
+  };
+
+  const revokeApp = async (id) => {
+    await LEAVE_REF.child(id).update({ status: 'revoked' });
+  };
+
+  // Calendar picker component
+  const MiniCalendar = ({ value, onChange }) => {
+    const [open, setOpen] = useState(false);
+    const [selStart, setSelStart] = useState(null);
+    const ref = useRef(null);
+
+    useEffect(() => {
+      const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+      document.addEventListener('mousedown', handler);
+      return () => document.removeEventListener('mousedown', handler);
+    }, []);
+
+    const handleDayClick = (date) => {
+      if (!selStart) {
+        setSelStart(date);
+      } else {
+        const s = selStart < date ? selStart : date;
+        const e = selStart < date ? date : selStart;
+        onChange(formatDateRange(s, e));
+        setSelStart(null);
+        setOpen(false);
+      }
+    };
+
+    const renderMonth = (monthIndex) => {
+      const first = new Date(2027, monthIndex, 1);
+      const last = new Date(2027, monthIndex + 1, 0);
+      const startDow = first.getDay();
+      const cells = [];
+      for (let i = 0; i < startDow; i++) cells.push(<div key={`e${i}`} />);
+      for (let d = 1; d <= last.getDate(); d++) {
+        const date = new Date(2027, monthIndex, d);
+        const dow = date.getDay();
+        const isWe = dow === 0 || dow === 6;
+        const isSelected = selStart && date.toDateString() === selStart.toDateString();
+        cells.push(
+          <div
+            key={d}
+            onClick={() => handleDayClick(date)}
+            className={`cal-cell ${isWe ? 'weekend' : ''} ${isSelected ? 'selected' : ''}`}
+          >
+            {d}
+          </div>
+        );
+      }
+      return (
+        <div key={monthIndex} className="mb-4">
+          <div className="font-bold text-center mb-1">{MONTHS[monthIndex]} 2027</div>
+          <div className="cal-grid text-xs">
+            {DAYS.map(d => <div key={d} className="text-center font-semibold text-gray-500 py-1">{d}</div>)}
+            {cells}
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div ref={ref} className="relative inline-block">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="DDMMM-DDMMM or tap 📅"
+          className="border rounded px-3 py-2 w-48 text-sm focus:ring-2 focus:ring-blue-300 outline-none"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-lg"
+        >📅</button>
+        {open && (
+          <div className="absolute z-50 bg-white border rounded-lg shadow-xl p-3 mt-1 w-72 max-h-96 overflow-y-auto">
+            {Array.from({length:12}, (_,i) => renderMonth(i))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Conflict detection (display only, no blocking)
+  const getConflicts = (currentChoices) => {
+    const conflicts = [];
+    const parsed = currentChoices.map((c,i) => ({ idx:i, ...parseDateRange(c) })).filter(p => p);
+    for (let i = 0; i < parsed.length; i++) {
+      for (let j = i+1; j < parsed.length; j++) {
+        const a = parsed[i], b = parsed[j];
+        if (a.start <= b.end && b.start <= a.end) {
+          conflicts.push(`Choice ${a.idx+1} & ${b.idx+1} overlap`);
         }
+      }
+    }
+    // Check against others' approved apps
+    allApps.forEach(app => {
+      if (app.status !== 'approved') return;
+      app.choices?.forEach(ac => {
+        const ap = parseDateRange(ac);
+        if (!ap) return;
+        parsed.forEach(cp => {
+          if (cp.start <= ap.end && ap.start <= cp.end) {
+            conflicts.push(`Your choice ${cp.idx+1} conflicts with ${app.name}'s ${ac}`);
+          }
+        });
+      });
+    });
+    return conflicts;
+  };
 
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-    </script>
+  const conflicts = getConflicts(choices);
+
+  // Summary calendar
+  const SummaryCalendar = () => {
+    const approved = allApps.filter(a => a.status === 'approved');
+    return (
+      <div className="space-y-6">
+        {Array.from({length:12}, (_,monthIndex) => {
+          const first = new Date(2027, monthIndex, 1);
+          const last = new Date(2027, monthIndex+1, 0);
+          const startDow = first.getDay();
+          const cells = [];
+          for (let i = 0; i < startDow; i++) cells.push(<div key={`e${i}`} />);
+          for (let d = 1; d <= last.getDate(); d++) {
+            const date = new Date(2027, monthIndex, d);
+            const dow = date.getDay();
+            const isWe = dow === 0 || dow === 6;
+            const matched = [];
+            approved.forEach(app => {
+              app.choices?.forEach(c => {
+                const p = parseDateRange(c);
+                if (p && date >= p.start && date <= p.end) matched.push(app.name);
+              });
+            });
+            cells.push(
+              <div key={d} className={`cal-cell flex-col ${isWe?'weekend':''} ${matched.length?'bg-blue-100':''}`}>
+                <span>{d}</span>
+                {matched.length > 0 && (
+                  <div className="text-[9px] leading-tight text-center truncate w-full px-0.5" title={matched.join(', ')}>
+                    {matched.slice(0,2).join(', ')}{matched.length>2?'+':''}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return (
+            <div key={monthIndex}>
+              <h3 className="font-bold text-lg mb-2">{MONTHS[monthIndex]} 2027</h3>
+              <div className="cal-grid text-xs border rounded-lg p-2 bg-white">
+                {DAYS.map(d => <div key={d} className="text-center font-semibold text-gray-500 py-1">{d}</div>)}
+                {cells}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-screen text-xl">Loading...</div>;
+
+  return (
+    <div className="min-h-screen p-4 max-w-5xl mx-auto">
+      <header className="text-center mb-8">
+        <h1 className="text-3xl font-bold text-blue-800">2027 Annual Leave Wish Selection</h1>
+        <nav className="mt-4 flex justify-center gap-4">
+          <button onClick={()=>setView('apply')} className={`px-4 py-2 rounded ${view==='apply'?'bg-blue-600 text-white':'bg-white'}`}>Apply</button>
+          <button onClick={()=>setView('summary')} className={`px-4 py-2 rounded ${view==='summary'?'bg-blue-600 text-white':'bg-white'}`}>Summary</button>
+          <button onClick={()=>setView('admin')} className={`px-4 py-2 rounded ${view==='admin'?'bg-blue-600 text-white':'bg-white'}`}>Admin</button>
+        </nav>
+      </header>
+
+      {view === 'apply' && (
+        <div className="fade-in max-w-2xl mx-auto">
+          <div className="bg-white rounded-xl shadow p-6 space-y-4">
+            <label className="block">
+              <span className="font-semibold">Your Name</span>
+              <input value={name} onChange={e=>setName(e.target.value)} className="w-full border rounded px-3 py-2 mt-1" placeholder="Enter full name" />
+            </label>
+            {[0,1,2,3,4].map(i => (
+              <div key={i} className="choice-card bg-blue-50 p-4 rounded-r-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-semibold">Choice {i+1}</span>
+                  {choices[i] && <button onClick={()=>cancelChoice(i)} className="text-red-500 text-sm hover:underline">Cancel</button>}
+                </div>
+                <MiniCalendar value={choices[i]} onChange={v=>saveChoice(i,v)} />
+              </div>
+            ))}
+            {conflicts.length > 0 && (
+              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 text-sm text-yellow-800">
+                {conflicts.map((c,i)=><div key={i}>⚠️ {c}</div>)}
+              </div>
+            )}
+            <button onClick={submitApp} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition">Submit Application</button>
+          </div>
+        </div>
+      )}
+
+      {view === 'summary' && (
+        <div className="fade-in">
+          <h2 className="text-2xl font-bold mb-4 text-center">Leave Summary — All Applicants</h2>
+          <SummaryCalendar />
+        </div>
+      )}
+
+      {view === 'admin' && !isAdmin && (
+        <div className="fade-in max-w-md mx-auto bg-white p-8 rounded-xl shadow text-center">
+          <h2 className="text-xl font-bold mb-4">Admin Login</h2>
+          <input type="password" value={adminPass} onChange={e=>setAdminPass(e.target.value)} className="border rounded px-4 py-2 w-full mb-4" placeholder="Password" />
+          <button onClick={adminLogin} className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700">Login</button>
+        </div>
+      )}
+
+      {view === 'admin' && isAdmin && (
+        <div className="fade-in space-y-6">
+          <div className="flex flex-wrap gap-3 items-center justify-between bg-white p-4 rounded-lg shadow">
+            <h2 className="text-xl font-bold">Admin Portal</h2>
+            <div className="flex gap-2">
+              <input value={filterTitle} onChange={e=>setFilterTitle(e.target.value)} placeholder="Filter by name..." className="border rounded px-3 py-1.5 text-sm" />
+              <button onClick={clearAllData} className="bg-red-600 text-white px-4 py-1.5 rounded text-sm hover:bg-red-700">Clear All Data</button>
+              <button onClick={()=>setIsAdmin(false)} className="text-gray-500 text-sm hover:underline">Logout</button>
+            </div>
+          </div>
+
+          {/* Live summary preview */}
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="font-bold mb-3">Live Summary Preview</h3>
+            <SummaryCalendar />
+          </div>
+
+          {/* Application records */}
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-3 text-left">Name</th>
+                  <th className="p-3 text-left">Choices</th>
+                  <th className="p-3 text-left">Type</th>
+                  <th className="p-3 text-left">Status</th>
+                  <th className="p-3 text-left">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allApps.filter(a => !filterTitle || a.name.toLowerCase().includes(filterTitle.toLowerCase())).map(app => (
+                  <tr key={app.id} className="border-t hover:bg-gray-50">
+                    <td className="p-3 font-medium">{app.name}</td>
+                    <td className="p-3">{app.choices?.join(', ')}</td>
+                    <td className="p-3"><span className={`text-xs px-2 py-0.5 rounded ${app.version==='amendment'?'bg-purple-100 text-purple-700':'bg-green-100 text-green-700'}`}>{app.version || 'first'}</span></td>
+                    <td className="p-3"><span className={`text-xs px-2 py-0.5 rounded ${app.status==='approved'?'bg-green-100 text-green-700':app.status==='revoked'?'bg-red-100 text-red-700':'bg-yellow-100 text-yellow-700'}`}>{app.status}</span></td>
+                    <td className="p-3 space-x-2">
+                      {app.status !== 'approved' && <button onClick={()=>approveApp(app.id)} className="text-green-600 hover:underline text-xs">Approve</button>}
+                      {app.status === 'approved' && <button onClick={()=>revokeApp(app.id)} className="text-red-600 hover:underline text-xs">Revoke</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
 </body>
 </html>
