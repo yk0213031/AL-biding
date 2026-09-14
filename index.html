@@ -11,9 +11,9 @@
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f3f4f6; }
         .cal-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; }
-        .day-cell { 
-            min-height: 70px; padding: 4px; font-size: 11px; 
-            border: 1px solid #e5e7eb; background: white; 
+        .day-cell {
+            min-height: 70px; padding: 4px; font-size: 11px;
+            border: 1px solid #e5e7eb; background: white;
             position: relative; cursor: pointer; transition: all 0.15s;
         }
         .day-cell:hover:not(.weekend):not(.winner) { background: #f9fafb; }
@@ -41,13 +41,13 @@
         const YEAR = 2027;
         const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
         const WEEKDAYS = ["Mon","Tue","Wed","Thu","Fri"];
-        const STORAGE_KEY = "leave_2027_v4";
+        const STORAGE_KEY = "leave_2027_v5";
         const ADMIN_PASS = "7851";
 
-        const getDaysInMonth = (m) => new Date(YEAR, m + 1, 0).getDate();
-        const getDayOfWeek = (d, m) => { const day = new Date(YEAR, m, d).getDay(); return day === 0 ? 6 : day - 1; };
-        const isWeekend = (d, m) => getDayOfWeek(d, m) >= 5;
-        const fmtDate = (d, m) => `${YEAR}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const getDaysInMonth = (mi) => new Date(YEAR, mi + 1, 0).getDate();
+        const getDayOfWeek = (d, mi) => { const day = new Date(YEAR, mi, d).getDay(); return day === 0 ? 6 : day - 1; };
+        const isWeekend = (d, mi) => getDayOfWeek(d, mi) >= 5;
+        const fmtDate = (d, mi) => `${YEAR}-${String(mi+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
         // --- Horizontal Month Calendar Component ---
         const MonthCal = ({ monthIndex, apps, winners, mode, currentUser, onToggle }) => {
@@ -55,13 +55,12 @@
             const cells = [];
 
             for (let d = 1; d <= daysInMonth; d++) {
-                if (isWeekend(d, m)) continue; // Skip weekends entirely
-                
+                if (isWeekend(d, monthIndex)) continue;
+
                 const dateStr = fmtDate(d, monthIndex);
                 const isWinner = winners.some(w => w.date === dateStr);
                 const winnerName = isWinner ? winners.find(w => w.date === dateStr)?.name : null;
-                
-                // Collect all selections for this date
+
                 const selections = [];
                 apps.forEach(app => {
                     if (app.c1.includes(dateStr)) selections.push({ name: app.name, type: 'C1' });
@@ -74,23 +73,20 @@
                 const hasConflict = mode === 'apply' && others.length > 0 && !isWinner;
 
                 let cellClass = "day-cell";
-                if (isWeekend(d, monthIndex)) cellClass += " weekend";
-                else if (isWinner) cellClass += " winner";
+                if (isWinner) cellClass += " winner";
                 else if (mySel?.type === 'C1') cellClass += " selected-c1";
                 else if (mySel?.type === 'C2') cellClass += " selected-c2";
                 else if (mySel?.type === 'C3') cellClass += " selected-c3";
                 if (hasConflict) cellClass += " conflict";
 
                 cells.push(
-                    <div key={d} 
+                    <div key={d}
                          className={cellClass}
-                         onClick={() => mode === 'apply' && !isWinner && !isWeekend(d, monthIndex) && onToggle(dateStr)}>
+                         onClick={() => mode === 'apply' && !isWinner && onToggle(dateStr)}>
                         <div className="font-bold text-gray-700">{d}</div>
-                        
-                        {/* Winner badge */}
+
                         {isWinner && <div className="tag tag-winner">✓ {winnerName}</div>}
-                        
-                        {/* Show ALL applicants' choices (summary mode) */}
+
                         {!isWinner && mode === 'view' && selections.slice(0, 3).map((s, i) => (
                             <div key={i} className={`tag tag-${s.type.toLowerCase()}`} title={`${s.name} (${s.type})`}>
                                 {s.name.split(' ')[0]}
@@ -100,7 +96,6 @@
                             <div className="text-[9px] text-gray-500 mt-1">+{selections.length - 3} more</div>
                         )}
 
-                        {/* Apply mode: show my selection + conflict warning */}
                         {mode === 'apply' && mySel && !isWinner && (
                             <div className={`tag tag-${mySel.type.toLowerCase()}`}>You ({mySel.type})</div>
                         )}
@@ -139,11 +134,10 @@
 
             const save = (newData) => {
                 setData(newData);
-                try { localStorage.setItem(STORAGE_KEY, JSON.stringify(newData)); } 
+                try { localStorage.setItem(STORAGE_KEY, JSON.stringify(newData)); }
                 catch(e) { alert("Storage full! Clear some data."); }
             };
 
-            // --- APPLICATION STATE ---
             const [appName, setAppName] = useState("");
             const [choices, setChoices] = useState({ c1: [], c2: [], c3: [] });
             const [activeChoice, setActiveChoice] = useState("c1");
@@ -151,27 +145,25 @@
 
             const handleToggle = (dateStr) => {
                 if (!appName.trim()) { alert("Enter your name first!"); return; }
-                
+
                 const cur = [...choices[activeChoice]];
                 const idx = cur.indexOf(dateStr);
                 const total = choices.c1.length + choices.c2.length + choices.c3.length;
 
                 if (idx === -1) {
                     if (total >= 5) { alert("Max 5 days total across all choices."); return; }
-                    // Remove from other choices
                     const nc = { ...choices };
                     ['c1','c2','c3'].forEach(k => { nc[k] = nc[k].filter(d => d !== dateStr); });
                     nc[activeChoice].push(dateStr);
                     nc[activeChoice].sort();
                     setChoices(nc);
 
-                    // Conflict check
-                    const conflicts = data.applications.filter(a => 
+                    const conflicts = data.applications.filter(a =>
                         a.name.toLowerCase() !== appName.trim().toLowerCase() &&
                         [a.c1, a.c2, a.c3].some(arr => arr.includes(dateStr))
                     );
                     if (conflicts.length > 0) {
-                        setAlertMsg(`⚠ CONFLICT: ${conflicts.map(c => c.name).join(', ')} also selected ${dateStr}. Admin will decide final allocation.`);
+                        setAlertMsg(`⚠ CONFLICT: ${conflicts.map(c => c.name).join(', ')} also selected ${dateStr}. Admin will decide.`);
                     } else {
                         setAlertMsg("");
                     }
@@ -203,13 +195,11 @@
                 setView("summary");
             };
 
-            // --- ADMIN LOGIC ---
             const [adminFilter, setAdminFilter] = useState("");
-            
+
             const approveChoice = (app, choiceKey) => {
                 const dates = app[choiceKey];
                 if (!dates.length) return;
-                // Overwrite any existing winner for these dates
                 const cleanWinners = data.winners.filter(w => !dates.includes(w.date));
                 const newWinners = dates.map(d => ({ date: d, name: app.name, choice: choiceKey }));
                 save({ ...data, winners: [...cleanWinners, ...newWinners] });
@@ -226,9 +216,7 @@
                 return data.applications.filter(a => a.name.toLowerCase().includes(adminFilter.toLowerCase()));
             }, [data.applications, adminFilter]);
 
-            // ==================== VIEWS ====================
-
-            // --- SUMMARY VIEW ---
+            // ==================== SUMMARY VIEW ====================
             if (view === "summary") {
                 return (
                     <div className="max-w-[1600px] mx-auto p-4 md:p-6">
@@ -240,7 +228,6 @@
                             </div>
                         </div>
 
-                        {/* Legend */}
                         <div className="flex flex-wrap gap-3 mb-6 text-xs font-bold no-print">
                             <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full">✓ Approved</span>
                             <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full">1st Choice</span>
@@ -248,22 +235,14 @@
                             <span className="px-3 py-1 bg-orange-100 text-orange-800 rounded-full">3rd Choice</span>
                         </div>
 
-                        {/* Horizontal Month Grid */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-10">
                             {MONTHS.map((_, i) => (
-                                <MonthCal 
-                                    key={i} 
-                                    monthIndex={i} 
-                                    apps={data.applications} 
-                                    winners={data.winners}
-                                    mode="view"
-                                />
+                                <MonthCal key={i} monthIndex={i} apps={data.applications} winners={data.winners} mode="view" />
                             ))}
                         </div>
 
-                        {/* Full Applicant Table */}
                         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-                            <div className="px-6 py-4 bg-gray-50 border-b flex justify-between items-center">
+                            <div className="px-6 py-4 bg-gray-50 border-b">
                                 <h2 className="text-xl font-bold text-gray-800">All Applications ({data.applications.length})</h2>
                             </div>
                             <div className="overflow-x-auto">
@@ -274,7 +253,7 @@
                                             <th className="px-4 py-3">1st Choice</th>
                                             <th className="px-4 py-3">2nd Choice</th>
                                             <th className="px-4 py-3">3rd Choice</th>
-                                            <th className="px-4 py-3">Total Days</th>
+                                            <th className="px-4 py-3">Total</th>
                                             <th className="px-4 py-3">Final Result</th>
                                         </tr>
                                     </thead>
@@ -282,12 +261,11 @@
                                         {[...data.applications].sort((a,b) => a.name.localeCompare(b.name)).map(app => {
                                             const wonDates = data.winners.filter(w => w.name === app.name).map(w => w.date);
                                             const totalReq = app.c1.length + app.c2.length + app.c3.length;
-                                            const status = wonDates.length > 0 
-                                                ? <span className="text-green-700 font-bold">✅ {wonDates.length}/{totalReq} approved</span>
+                                            const status = wonDates.length > 0
+                                                ? <span className="text-green-700 font-bold">✅ {wonDates.length}/{totalReq}</span>
                                                 : <span className="text-gray-400">Pending</span>;
-                                            
                                             return (
-                                                <tr key={app.id} className="hover:bg-gray-50 transition-colors">
+                                                <tr key={app.id} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">{app.name}</td>
                                                     <td className="px-4 py-3 text-blue-600 text-xs">{app.c1.length ? app.c1.join(', ') : <span className="text-gray-300">—</span>}</td>
                                                     <td className="px-4 py-3 text-purple-600 text-xs">{app.c2.length ? app.c2.join(', ') : <span className="text-gray-300">—</span>}</td>
@@ -298,7 +276,7 @@
                                             );
                                         })}
                                         {data.applications.length === 0 && (
-                                            <tr><td colSpan="6" className="px-6 py-10 text-center text-gray-400">No applications submitted yet</td></tr>
+                                            <tr><td colSpan="6" className="px-6 py-10 text-center text-gray-400">No applications yet</td></tr>
                                         )}
                                     </tbody>
                                 </table>
@@ -308,20 +286,20 @@
                 );
             }
 
-            // --- APPLY VIEW ---
+            // ==================== APPLY VIEW ====================
             if (view === "apply") {
                 const totalDays = choices.c1.length + choices.c2.length + choices.c3.length;
                 return (
                     <div className="max-w-[1600px] mx-auto p-4 md:p-6">
                         <button onClick={() => setView("summary")} className="mb-6 text-gray-600 hover:text-gray-900 font-medium no-print">← Back to Summary</button>
-                        
+
                         <div className="bg-white rounded-xl shadow-lg p-6 md:p-8 mb-6 sticky top-4 z-40 no-print border-2 border-blue-100">
                             <h1 className="text-2xl font-bold mb-5 text-gray-900">Leave Application</h1>
-                            
+
                             <div className="mb-5">
                                 <label className="block text-sm font-bold text-gray-700 mb-2">Full Name *</label>
-                                <input 
-                                    type="text" 
+                                <input
+                                    type="text"
                                     value={appName}
                                     onChange={(e) => setAppName(e.target.value)}
                                     placeholder="Type your full name here"
@@ -331,12 +309,12 @@
 
                             <div className="flex flex-wrap gap-2 mb-4">
                                 {[["c1","1st Choice","blue"],["c2","2nd Choice","purple"],["c3","3rd Choice","orange"]].map(([k,l,c]) => (
-                                    <button 
+                                    <button
                                         key={k}
                                         onClick={() => setActiveChoice(k)}
                                         className={`px-5 py-2.5 rounded-lg font-bold text-sm transition-all ${
-                                            activeChoice === k 
-                                            ? `bg-${c}-600 text-white shadow-md ring-2 ring-offset-2 ring-${c}-400` 
+                                            activeChoice === k
+                                            ? `bg-${c}-600 text-white shadow-md ring-2 ring-offset-2 ring-${c}-400`
                                             : `bg-${c}-50 text-${c}-700 hover:bg-${c}-100`
                                         }`}
                                     >
@@ -346,9 +324,8 @@
                             </div>
 
                             <div className="text-sm text-gray-600 mb-3">
-                                Selecting <strong>{activeChoice === 'c1' ? '1st' : activeChoice === 'c2' ? '2nd' : '3rd'} Choice</strong> • 
-                                Total: <strong>{totalDays}/5 days</strong> • 
-                                Click weekday cells to toggle
+                                Selecting <strong>{activeChoice === 'c1' ? '1st' : activeChoice === 'c2' ? '2nd' : '3rd'} Choice</strong> •
+                                Total: <strong>{totalDays}/5 days</strong> • Click weekday cells to toggle
                             </div>
 
                             {alertMsg && (
@@ -358,24 +335,14 @@
                             )}
                         </div>
 
-                        {/* Calendar Grid */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-20">
                             {MONTHS.map((_, i) => (
-                                <MonthCal 
-                                    key={i} 
-                                    monthIndex={i} 
-                                    apps={data.applications} 
-                                    winners={data.winners}
-                                    mode="apply"
-                                    currentUser={appName}
-                                    onToggle={handleToggle}
-                                />
+                                <MonthCal key={i} monthIndex={i} apps={data.applications} winners={data.winners} mode="apply" currentUser={appName} onToggle={handleToggle} />
                             ))}
                         </div>
 
-                        {/* Floating Submit Button */}
                         <div className="fixed bottom-6 right-6 z-50 no-print">
-                            <button 
+                            <button
                                 onClick={submitApp}
                                 disabled={totalDays === 0 || !appName.trim()}
                                 className="px-8 py-4 bg-green-600 text-white rounded-full shadow-2xl hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-lg transition-transform hover:scale-105 active:scale-95"
@@ -387,7 +354,7 @@
                 );
             }
 
-            // --- ADMIN VIEW ---
+            // ==================== ADMIN VIEW ====================
             if (view === "admin") {
                 if (!adminAuth) {
                     return (
@@ -395,8 +362,8 @@
                             <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
                                 <div className="text-4xl mb-4">🔒</div>
                                 <h2 className="text-2xl font-bold mb-6 text-gray-900">Admin Access</h2>
-                                <input 
-                                    type="password" 
+                                <input
+                                    type="password"
                                     value={adminPass}
                                     onChange={(e) => setAdminPass(e.target.value)}
                                     onKeyDown={(e) => e.key === "Enter" && (adminPass === ADMIN_PASS ? (setAdminAuth(true), setAdminPass("")) : alert("❌ Wrong password"))}
@@ -404,7 +371,7 @@
                                     className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg mb-4 text-center text-xl tracking-[0.3em]"
                                     autoFocus
                                 />
-                                <button 
+                                <button
                                     onClick={() => adminPass === ADMIN_PASS ? (setAdminAuth(true), setAdminPass("")) : alert("❌ Wrong password")}
                                     className="w-full py-3 bg-gray-900 text-white rounded-lg font-bold hover:bg-gray-800 transition-colors"
                                 >
@@ -426,11 +393,10 @@
                             </div>
                         </div>
 
-                        {/* Filter */}
                         <div className="bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-3">
                             <span className="font-bold text-gray-700 whitespace-nowrap">Filter:</span>
-                            <input 
-                                type="text" 
+                            <input
+                                type="text"
                                 value={adminFilter}
                                 onChange={(e) => setAdminFilter(e.target.value)}
                                 placeholder="Search applicant name..."
@@ -440,7 +406,6 @@
                             <span className="text-sm text-gray-500 whitespace-nowrap">{filteredApps.length} / {data.applications.length}</span>
                         </div>
 
-                        {/* Apps List */}
                         <div className="space-y-4">
                             {[...filteredApps].sort((a,b) => a.name.localeCompare(b.name)).map(app => {
                                 const wonDates = data.winners.filter(w => w.name === app.name).map(w => w.date);
@@ -462,7 +427,7 @@
                                                 const dates = app[key];
                                                 if (!dates.length) return null;
                                                 const isApproved = dates.every(d => wonDates.includes(d)) && dates.length > 0;
-                                                
+
                                                 return (
                                                     <div key={key} className={`p-4 rounded-lg border bg-${color}-50/50 border-${color}-200`}>
                                                         <div className="flex justify-between items-center mb-2">
@@ -470,16 +435,16 @@
                                                             <span className="text-xs text-gray-500">{dates.length}d</span>
                                                         </div>
                                                         <div className="text-xs text-gray-700 mb-3 break-words leading-relaxed">{dates.join(', ')}</div>
-                                                        
+
                                                         {!isApproved ? (
-                                                            <button 
+                                                            <button
                                                                 onClick={() => approveChoice(app, key)}
                                                                 className={`w-full py-2 bg-${color}-600 text-white rounded font-bold text-xs hover:bg-${color}-700 transition-colors`}
                                                             >
                                                                 ✓ APPROVE THIS CHOICE
                                                             </button>
                                                         ) : (
-                                                            <button 
+                                                            <button
                                                                 onClick={() => revokeWinner(app.name, dates)}
                                                                 className="w-full py-2 bg-gray-200 text-gray-700 rounded font-bold text-xs hover:bg-red-100 hover:text-red-700 transition-colors"
                                                             >
