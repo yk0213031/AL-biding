@@ -41,53 +41,29 @@
 
         const YEAR = 2027;
         const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-        const WEEKDAYS_FULL = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-        const STORAGE_KEY = "leave_2027_v6";
+        // Amendment 1: Sun before Mon
+        const WEEKDAYS_FULL = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+        const STORAGE_KEY = "leave_2027_v7";
         const ADMIN_PASS = "7851";
 
         const getDaysInMonth = (mi) => new Date(YEAR, mi + 1, 0).getDate();
-        const getDayOfWeek = (d, mi) => { const day = new Date(YEAR, mi, d).getDay(); return day === 0 ? 6 : day - 1; }; // 0=Mon..6=Sun
-        const isWeekend = (d, mi) => getDayOfWeek(d, mi) >= 5;
+        // getDay(): 0=Sun,1=Mon,...6=Sat → we need offset for Sun-first grid
+        const getDayOfWeekSunFirst = (d, mi) => new Date(YEAR, mi, d).getDay(); // 0=Sun,1=Mon,...6=Sat — already Sun-first!
+        const isWeekend = (d, mi) => { const dow = getDayOfWeekSunFirst(d, mi); return dow === 0 || dow === 6; };
         const fmtDate = (d, mi) => `${YEAR}-${String(mi+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const parseDate = (str) => { const p = str.split('-'); return { y: +p[0], m: +p[1]-1, d: +p[2] }; };
-        const dateToMi = (str) => { const p = parseDate(str); return p.m; };
 
-        // Generate all valid consecutive-5-day ranges (weekdays only)
-        const getConsecutiveRanges = () => {
-            const ranges = [];
-            for (let mi = 0; mi < 12; mi++) {
-                const dim = getDaysInMonth(mi);
-                for (let start = 1; start <= dim; start++) {
-                    let days = [];
-                    let valid = true;
-                    for (let offset = 0; offset < 5; offset++) {
-                        let dd = start + offset;
-                        if (dd > dim) {
-                            // Check next month
-                            if (mi < 11 && dd - dim <= getDaysInMonth(mi + 1)) {
-                                const nd = dd - dim;
-                                if (isWeekend(nd, mi + 1)) { valid = false; break; }
-                                days.push(fmtDate(nd, mi + 1));
-                            } else { valid = false; break; }
-                        } else {
-                            if (isWeekend(dd, mi)) { valid = false; break; }
-                            days.push(fmtDate(dd, mi));
-                        }
-                    }
-                    if (valid && days.length === 5) ranges.push(days);
-                }
-            }
-            return ranges;
-        };
-        const CONSECUTIVE_RANGES = getConsecutiveRanges();
+        // Amendment 2: Only restrict weekends when selecting exactly 5 days
+        // For 1-4 days, weekends are freely selectable
+        // We track total selected to determine restriction dynamically
 
-        // --- Month Calendar Component (shows Sat/Sun) ---
-        const MonthCal = ({ monthIndex, apps, winners, mode, currentUser, onToggle, disabledDates }) => {
+        // --- Month Calendar Component ---
+        const MonthCal = ({ monthIndex, apps, winners, mode, currentUser, onToggle, weekendRestricted }) => {
             const daysInMonth = getDaysInMonth(monthIndex);
-            const firstDayOffset = getDayOfWeek(1, monthIndex); // 0=Mon
+            const firstDayOffset = getDayOfWeekSunFirst(1, monthIndex); // 0=Sun for Sun-first grid
             const cells = [];
 
-            // Padding for alignment
+            // Padding for alignment (Sun-first)
             for (let p = 0; p < firstDayOffset; p++) {
                 cells.push(<div key={`pad-${p}`} className="day-cell disabled" style={{background:'#f9fafb',border:'none'}}></div>);
             }
@@ -95,7 +71,8 @@
             for (let d = 1; d <= daysInMonth; d++) {
                 const dateStr = fmtDate(d, monthIndex);
                 const we = isWeekend(d, monthIndex);
-                const isDis = disabledDates && disabledDates.has(dateStr);
+                // Amendment 2: only block weekends if weekendRestricted is true (i.e., total would reach 5)
+                const isBlocked = mode === 'apply' && we && weekendRestricted;
                 const isWinner = winners.some(w => w.date === dateStr);
                 const winnerName = isWinner ? winners.find(w => w.date === dateStr)?.name : null;
 
@@ -112,14 +89,14 @@
 
                 let cellClass = "day-cell";
                 if (we) cellClass += " weekend";
-                if (isDis && mode === 'apply') cellClass += " disabled";
+                if (isBlocked) cellClass += " disabled";
                 if (isWinner) cellClass += " winner";
                 else if (mySel?.type === 'C1') cellClass += " selected-c1";
                 else if (mySel?.type === 'C2') cellClass += " selected-c2";
                 else if (mySel?.type === 'C3') cellClass += " selected-c3";
                 if (hasConflict) cellClass += " conflict";
 
-                const canClick = mode === 'apply' && !isWinner && !(isDis && we);
+                const canClick = mode === 'apply' && !isWinner && !isBlocked;
 
                 cells.push(
                     <div key={d}
@@ -154,7 +131,7 @@
                 <div className="month-card bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                     <h3 className="text-base font-bold text-gray-800 mb-2 pb-2 border-b">{MONTHS[monthIndex]}</h3>
                     <div className="cal-grid mb-1">
-                        {WEEKDAYS_FULL.map(w => <div key={w} className={`text-[10px] font-bold text-center py-1 ${w==='Sat'||w==='Sun'?'text-red-400':'text-gray-500'}`}>{w}</div>)}
+                        {WEEKDAYS_FULL.map(w => <div key={w} className={`text-[10px] font-bold text-center py-1 ${w==='Sun'||w==='Sat'?'text-red-400':'text-gray-500'}`}>{w}</div>)}
                     </div>
                     <div className="cal-grid">{cells}</div>
                 </div>
@@ -186,11 +163,13 @@
             const [alertMsg, setAlertMsg] = useState("");
             const [manualInput, setManualInput] = useState({ c1: "", c2: "", c3: "" });
 
-            // Parse manual date range input (e.g., "2027-01-04 to 2027-01-08" or "04Jan-08Jan")
+            const totalSelected = choices.c1.length + choices.c2.length + choices.c3.length;
+            // Amendment 2: weekends restricted only when adding would make total = 5
+            const weekendRestricted = totalSelected >= 4; // If already have 4, next add makes 5 → restrict
+
             const parseManualRange = (input) => {
                 const cleaned = input.trim();
                 if (!cleaned) return [];
-                // Support YYYY-MM-DD to YYYY-MM-DD
                 const isoMatch = cleaned.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|-|–)\s*(\d{4}-\d{2}-\d{2})/i);
                 if (isoMatch) {
                     const start = parseDate(isoMatch[1]);
@@ -206,7 +185,6 @@
                     }
                     return dates;
                 }
-                // Support single date YYYY-MM-DD
                 const singleIso = cleaned.match(/^(\d{4}-\d{2}-\d{2})$/);
                 if (singleIso) {
                     const p = parseDate(singleIso[1]);
@@ -218,53 +196,48 @@
             const handleManualSubmit = () => {
                 if (!appName.trim()) { alert("Enter your name first!"); return; }
                 const dates = parseManualRange(manualInput[activeChoice]);
-                if (dates.length === 0) { alert("Invalid date format. Use: 2027-01-04 to 2027-01-08"); return; }
+                if (dates.length === 0) { alert("Invalid format. Use: 2027-01-04 to 2027-01-08"); return; }
 
-                // Validate weekends
-                const weekendDates = dates.filter(ds => { const p = parseDate(ds); return isWeekend(p.d, p.m); });
-                if (weekendDates.length > 0) {
-                    // Only allow if it's exactly 5 consecutive weekdays
-                    const isConsec = CONSECUTIVE_RANGES.some(r => r.length === dates.length && r.every(d => dates.includes(d)));
-                    if (!isConsec) {
-                        alert(`Cannot include weekends unless selecting exactly 5 consecutive weekdays. Weekend dates found: ${weekendDates.join(', ')}`);
-                        return;
-                    }
-                }
-
-                const totalCurrent = choices.c1.length + choices.c2.length + choices.c3.length;
                 const nc = { ...choices };
                 ['c1','c2','c3'].forEach(k => { nc[k] = nc[k].filter(d => !dates.includes(d)); });
-                if (totalCurrent - nc[activeChoice].length + dates.length > 5) {
-                    alert("Max 5 days total across all choices.");
-                    return;
+                const newTotal = nc.c1.length + nc.c2.length + nc.c3.length + dates.length;
+                if (newTotal > 5) { alert("Max 5 days total."); return; }
+
+                // Amendment 2: if newTotal === 5, validate no weekends in this batch
+                if (newTotal === 5) {
+                    const hasWeekend = dates.some(ds => { const p = parseDate(ds); return isWeekend(p.d, p.m); });
+                    if (hasWeekend) { alert("Cannot include weekends when selecting exactly 5 days."); return; }
                 }
+
                 nc[activeChoice] = [...new Set([...nc[activeChoice], ...dates])].sort();
                 setChoices(nc);
                 setManualInput({ ...manualInput, [activeChoice]: "" });
 
-                // Conflict check
                 const conflicts = data.applications.filter(a =>
                     a.name.toLowerCase() !== appName.trim().toLowerCase() &&
                     [a.c1, a.c2, a.c3].some(arr => arr.some(d => dates.includes(d)))
                 );
                 if (conflicts.length > 0) {
                     setAlertMsg(`⚠ CONFLICT: ${conflicts.map(c => c.name).join(', ')} also selected overlapping dates.`);
-                } else {
-                    setAlertMsg("");
-                }
+                } else { setAlertMsg(""); }
             };
 
             const handleToggle = (dateStr) => {
                 if (!appName.trim()) { alert("Enter your name first!"); return; }
                 const p = parseDate(dateStr);
-                if (isWeekend(p.d, p.m)) return; // Block weekend taps
+                const we = isWeekend(p.d, p.m);
+
+                // Amendment 2: block weekend tap only if it would make total = 5
+                if (we && totalSelected >= 4) {
+                    alert("Weekends cannot be selected when total reaches 5 days.");
+                    return;
+                }
 
                 const cur = [...choices[activeChoice]];
                 const idx = cur.indexOf(dateStr);
-                const total = choices.c1.length + choices.c2.length + choices.c3.length;
 
                 if (idx === -1) {
-                    if (total >= 5) { alert("Max 5 days total."); return; }
+                    if (totalSelected >= 5) { alert("Max 5 days total."); return; }
                     const nc = { ...choices };
                     ['c1','c2','c3'].forEach(k => { nc[k] = nc[k].filter(d => d !== dateStr); });
                     nc[activeChoice].push(dateStr);
@@ -287,10 +260,15 @@
 
             const submitApp = () => {
                 if (!appName.trim()) return alert("Name required");
-                const total = choices.c1.length + choices.c2.length + choices.c3.length;
-                if (total < 1 || total > 5) return alert("Select 1-5 days total");
+                if (totalSelected < 1 || totalSelected > 5) return alert("Select 1-5 days total");
 
-                // Check if amendment or first submission
+                // Final validation: if exactly 5 days, no weekends allowed
+                if (totalSelected === 5) {
+                    const allDates = [...choices.c1, ...choices.c2, ...choices.c3];
+                    const hasWeekend = allDates.some(ds => { const p = parseDate(ds); return isWeekend(p.d, p.m); });
+                    if (hasWeekend) { alert("Cannot include weekends when selecting exactly 5 days. Please adjust."); return; }
+                }
+
                 const existing = data.applications.find(a => a.name.toLowerCase() === appName.trim().toLowerCase());
                 const isNew = !existing;
                 const version = isNew ? 1 : (existing.version || 1) + 1;
@@ -304,13 +282,11 @@
                     isFirst: isNew
                 };
 
-                // Replace original (cover it)
                 const filtered = data.applications.filter(a => a.name.toLowerCase() !== appName.trim().toLowerCase());
-                // Also revoke any winners for this person since choices changed
                 const cleanWinners = data.winners.filter(w => w.name.toLowerCase() !== appName.trim().toLowerCase());
                 save({ applications: [...filtered, newApp], winners: cleanWinners });
 
-                alert(isNew ? "✅ Application submitted!" : `✅ Application amended (v${version}). Previous choices replaced.`);
+                alert(isNew ? "✅ Application submitted!" : `✅ Amended (v${version}). Previous replaced.`);
                 setChoices({ c1: [], c2: [], c3: [] });
                 setAppName("");
                 setAlertMsg("");
@@ -335,28 +311,21 @@
                 save({ ...data, winners: clean });
             };
 
+            // Amendment 3: Clear all data
+            const clearAllData = () => {
+                if (confirm("⚠ Are you sure? This will permanently delete ALL applications and approvals. This cannot be undone.")) {
+                    if (confirm("FINAL CONFIRMATION: Delete everything?")) {
+                        save({ applications: [], winners: [] });
+                        alert("✅ All data cleared.");
+                    }
+                }
+            };
+
             const filteredApps = useMemo(() => {
                 let list = data.applications;
                 if (adminFilter) list = list.filter(a => a.name.toLowerCase().includes(adminFilter.toLowerCase()));
                 return list.sort((a,b) => a.name.localeCompare(b.name));
             }, [data.applications, adminFilter]);
-
-            // Disabled weekend dates for apply mode (only enable if part of valid consecutive 5)
-            const disabledWeekends = useMemo(() => {
-                const allowed = new Set();
-                CONSECUTIVE_RANGES.forEach(r => r.forEach(d => allowed.add(d)));
-                // All weekend dates NOT in any valid consecutive range are disabled
-                const disabled = new Set();
-                for (let mi = 0; mi < 12; mi++) {
-                    for (let d = 1; d <= getDaysInMonth(mi); d++) {
-                        if (isWeekend(d, mi)) {
-                            const ds = fmtDate(d, mi);
-                            if (!allowed.has(ds)) disabled.add(ds);
-                        }
-                    }
-                }
-                return disabled;
-            }, []);
 
             // ==================== SUMMARY VIEW ====================
             if (view === "summary") {
@@ -375,7 +344,7 @@
                             <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full">1st Choice</span>
                             <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full">2nd Choice</span>
                             <span className="px-3 py-1 bg-orange-100 text-orange-800 rounded-full">3rd Choice</span>
-                            <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full">Sat/Sun (restricted)</span>
+                            <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full">Sat/Sun</span>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-10">
@@ -389,7 +358,6 @@
 
             // ==================== APPLY VIEW ====================
             if (view === "apply") {
-                const totalDays = choices.c1.length + choices.c2.length + choices.c3.length;
                 return (
                     <div className="max-w-[1600px] mx-auto p-4 md:p-6">
                         <button onClick={() => setView("summary")} className="mb-6 text-gray-600 hover:text-gray-900 font-medium no-print">← Back to Summary</button>
@@ -430,11 +398,15 @@
                                         Add
                                     </button>
                                 </div>
-                                <p className="text-xs text-gray-500 mt-2">Format: YYYY-MM-DD to YYYY-MM-DD. Weekends only allowed in consecutive 5-weekday blocks.</p>
+                                <p className="text-xs text-gray-500 mt-2">Format: YYYY-MM-DD to YYYY-MM-DD. Weekends allowed for 1-4 days; blocked at 5 days.</p>
                             </div>
 
                             <div className="text-sm text-gray-600 mb-3">
-                                Total: <strong>{totalDays}/5 days</strong> • Tap calendar cells or type dates above • Red = weekend (restricted)
+                                Total: <strong>{totalSelected}/5 days</strong> • 
+                                {weekendRestricted 
+                                    ? <span className="text-red-600 font-bold ml-1">⚠ Weekends now blocked (5-day limit)</span>
+                                    : <span className="text-green-600 ml-1">✓ Weekends available (under 5 days)</span>
+                                }
                             </div>
 
                             {alertMsg && (
@@ -447,14 +419,14 @@
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-20">
                             {MONTHS.map((_, i) => (
                                 <MonthCal key={i} monthIndex={i} apps={data.applications} winners={data.winners}
-                                    mode="apply" currentUser={appName} onToggle={handleToggle} disabledDates={disabledWeekends} />
+                                    mode="apply" currentUser={appName} onToggle={handleToggle} weekendRestricted={weekendRestricted} />
                             ))}
                         </div>
 
                         <div className="fixed bottom-6 right-6 z-50 no-print">
-                            <button onClick={submitApp} disabled={totalDays === 0 || !appName.trim()}
+                            <button onClick={submitApp} disabled={totalSelected === 0 || !appName.trim()}
                                 className="px-8 py-4 bg-green-600 text-white rounded-full shadow-2xl hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-lg transition-transform hover:scale-105 active:scale-95">
-                                Submit ({totalDays} days)
+                                Submit ({totalSelected} days)
                             </button>
                         </div>
                     </div>
@@ -484,16 +456,26 @@
                     );
                 }
 
+                // Amendment 4: Embedded summary in admin portal
                 return (
-                    <div className="max-w-6xl mx-auto p-4 md:p-6">
+                    <div className="max-w-[1600px] mx-auto p-4 md:p-6">
                         <div className="flex flex-wrap justify-between items-center gap-4 mb-8">
                             <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
                             <div className="flex gap-3">
-                                <button onClick={() => setView("summary")} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-medium">Summary</button>
+                                <button onClick={() => setView("summary")} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-medium">Public Summary</button>
                                 <button onClick={() => { setAdminAuth(false); setAdminPass(""); }} className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 font-medium">Logout</button>
                             </div>
                         </div>
 
+                        {/* Amendment 3: Clear Data Button */}
+                        <div className="mb-6 flex justify-end">
+                            <button onClick={clearAllData}
+                                className="px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-bold text-sm shadow">
+                                🗑 Clear All Data
+                            </button>
+                        </div>
+
+                        {/* Filter */}
                         <div className="bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-col sm:flex-row items-start sm:items-center gap-3">
                             <span className="font-bold text-gray-700 whitespace-nowrap">Filter:</span>
                             <input type="text" value={adminFilter} onChange={(e) => setAdminFilter(e.target.value)}
@@ -502,7 +484,8 @@
                             <span className="text-sm text-gray-500 whitespace-nowrap">{filteredApps.length} / {data.applications.length}</span>
                         </div>
 
-                        <div className="space-y-4">
+                        {/* Applicant Cards */}
+                        <div className="space-y-4 mb-12">
                             {filteredApps.map(app => {
                                 const wonDates = data.winners.filter(w => w.name === app.name).map(w => w.date);
                                 const totalReq = app.c1.length + app.c2.length + app.c3.length;
@@ -560,6 +543,22 @@
                                     {data.applications.length === 0 ? "No applications yet" : `No match for "${adminFilter}"`}
                                 </div>
                             )}
+                        </div>
+
+                        {/* Amendment 4: Live Summary Preview in Admin */}
+                        <div className="border-t-4 border-gray-300 pt-8">
+                            <h2 className="text-2xl font-bold text-gray-800 mb-4">Live Summary Preview</h2>
+                            <div className="flex flex-wrap gap-3 mb-4 text-xs font-bold">
+                                <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full">✓ Approved</span>
+                                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full">1st Choice</span>
+                                <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full">2nd Choice</span>
+                                <span className="px-3 py-1 bg-orange-100 text-orange-800 rounded-full">3rd Choice</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                {MONTHS.map((_, i) => (
+                                    <MonthCal key={i} monthIndex={i} apps={data.applications} winners={data.winners} mode="view" />
+                                ))}
+                            </div>
                         </div>
                     </div>
                 );
