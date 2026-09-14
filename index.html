@@ -17,19 +17,18 @@
         const { useState, useEffect } = React;
 
         function App() {
-            const [currentView, setCurrentView] = useState('summary'); // summary, apply, admin
+            const [currentView, setCurrentView] = useState('summary');
             const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
             const [adminPasswordInput, setAdminPasswordInput] = useState('');
             const [adminError, setAdminError] = useState(false);
 
-            // Load saved applications from localStorage
             const [applications, setApplications] = useState(() => {
-                const saved = localStorage.getItem('leave_applications_2027');
+                const saved = localStorage.getItem('leave_applications_2027_v2');
                 return saved ? JSON.parse(saved) : [];
             });
 
             useEffect(() => {
-                localStorage.setItem('leave_applications_2027', JSON.stringify(applications));
+                localStorage.setItem('leave_applications_2027_v2', JSON.stringify(applications));
             }, [applications]);
 
             const handleAdminAccess = (e) => {
@@ -45,14 +44,12 @@
 
             return (
                 <div className="min-h-screen flex flex-col">
-                    {/* Header */}
                     <header className="bg-indigo-600 text-white shadow-md">
-                        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                        <div className="max-w-7xl mx-auto px-4 py-4">
                             <h1 className="text-xl font-bold flex items-center gap-2">
                                 <i data-lucide="calendar"></i> 2027 Annual Leave Planner
                             </h1>
                         </div>
-                        {/* Navigation Tabs */}
                         <div className="max-w-7xl mx-auto px-4 flex gap-2 border-t border-indigo-500 pt-2 pb-2">
                             <button 
                                 onClick={() => setCurrentView('summary')}
@@ -81,7 +78,6 @@
                         </div>
                     </header>
 
-                    {/* Main Content Area */}
                     <main className="flex-grow max-w-7xl w-full mx-auto p-4 md:p-6">
                         {currentView === 'summary' && <SummaryView applications={applications} />}
                         {currentView === 'apply' && <ApplyView applications={applications} setApplications={setApplications} />}
@@ -100,7 +96,7 @@
                                             placeholder="Enter admin password"
                                         />
                                     </div>
-                                    {adminError && <p className="text-xs text-red-600">Incorrect password. Please try again (Code: 7851).</p>}
+                                    {adminError && <p className="text-xs text-red-600">Incorrect password. Please try again.</p>}
                                     <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2 rounded-lg hover:bg-indigo-700 transition">
                                         Login to Admin Panel
                                     </button>
@@ -117,13 +113,11 @@
             );
         }
 
-        // --- SUMMARY VIEW COMPONENT ---
         function SummaryView({ applications }) {
             const months = [
                 "January", "February", "March", "April", "May", "June", 
                 "July", "August", "September", "October", "November", "December"
             ];
-
             const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
             const getSelectionsForDate = (dateStr) => {
@@ -148,9 +142,9 @@
                         <h2 className="text-xl font-bold text-slate-800 mb-2">2027 Company Leave Summary</h2>
                         <p className="text-sm text-slate-600 mb-6">
                             Vertical month view showing workdays (Monday to Friday) and colleague choices: 
-                            <span className="inline-block w-3 h-3 bg-indigo-600 rounded-full mx-1"></span> 1st Choice | 
-                            <span className="inline-block w-3 h-3 bg-blue-400 rounded-full mx-1"></span> 2nd Choice | 
-                            <span className="inline-block w-3 h-3 bg-teal-400 rounded-full mx-1"></span> 3rd Choice
+                            <span className="inline-block w-3 h-3 bg-indigo-600 rounded-full mx-1 align-middle"></span> 1st Choice | 
+                            <span className="inline-block w-3 h-3 bg-blue-500 rounded-full mx-1 align-middle"></span> 2nd Choice | 
+                            <span className="inline-block w-3 h-3 bg-teal-500 rounded-full mx-1 align-middle"></span> 3rd Choice
                         </p>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -171,17 +165,17 @@
                                                 const dateObj = new Date(dateStr);
                                                 const dayOfWeekIndex = dateObj.getDay();
                                                 const isWeekend = dayOfWeekIndex === 0 || dayOfWeekIndex === 6;
-                                                if (isWeekend) return null; // Show Monday to Friday only
+                                                if (isWeekend) return null;
 
                                                 const dayOfWeekName = weekdays[dayOfWeekIndex];
                                                 const activeSelections = getSelectionsForDate(dateStr);
 
                                                 return (
-                                                    <div key={dateStr} className="text-xs flex items-center justify-between bg-white px-2 py-1.5 rounded border border-slate-100 shadow-2xs">
-                                                        <span className="font-semibold text-slate-600 w-20">
+                                                    <div key={dateStr} className="text-xs flex items-center justify-between bg-white px-2 py-1.5 rounded border border-slate-100 shadow-sm">
+                                                        <span className="font-semibold text-slate-600 w-20 shrink-0">
                                                             {dayOfWeekName}, {dayNum}
                                                         </span>
-                                                        <div className="flex flex-wrap gap-1 justify-end flex-grow">
+                                                        <div className="flex flex-wrap gap-1 justify-end flex-grow min-w-0">
                                                             {activeSelections.length === 0 ? (
                                                                 <span className="text-slate-300 italic">-</span>
                                                             ) : (
@@ -190,7 +184,7 @@
                                                                     if (sel.rank === 'second') colorBg = "bg-blue-500 text-white";
                                                                     if (sel.rank === 'third') colorBg = "bg-teal-500 text-white";
                                                                     return (
-                                                                        <span key={idx} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colorBg}`} title={`${sel.name} - ${sel.rank.toUpperCase()} choice`}>
+                                                                        <span key={idx} className={`px-1.5 py-0.5 rounded text-[10px] font-medium truncate max-w-[120px] ${colorBg}`} title={`${sel.name} - ${sel.rank.toUpperCase()} choice`}>
                                                                             {sel.name} ({sel.rank[0].toUpperCase()})
                                                                         </span>
                                                                     );
@@ -210,7 +204,6 @@
             );
         }
 
-        // --- APPLICATION VIEW COMPONENT ---
         function ApplyView({ applications, setApplications }) {
             const [name, setName] = useState('');
             const [first, setFirst] = useState({ start: '', end: '' });
@@ -242,7 +235,7 @@
                 }
                 const days = countWorkingDays(choice.start, choice.end);
                 if (days < 1 || days > 5) {
-                    setMessage({ text: `${label} choice must be between 1 and 5 working days (Monday to Friday). Selected: ${days} days.`, type: 'error' });
+                    setMessage({ text: `${label} choice must be between 1 and 5 working days (Mon-Fri). Selected: ${days} days.`, type: 'error' });
                     return false;
                 }
                 return true;
@@ -271,7 +264,6 @@
                     updatedAt: new Date().toISOString()
                 };
 
-                // Replace or append by name
                 const filtered = applications.filter(a => a.name.toLowerCase() !== name.trim().toLowerCase());
                 setApplications([...filtered, newApp]);
                 setMessage({ text: 'Leave wish choices successfully saved!', type: 'success' });
@@ -291,7 +283,6 @@
                     )}
 
                     <form onSubmit={handleSave} className="space-y-6">
-                        {/* Name Input */}
                         <div className="p-4 border rounded-lg bg-slate-50 border-slate-200">
                             <label className="block text-sm font-bold text-slate-700 mb-1">Applicant Full Name</label>
                             <input 
@@ -304,95 +295,40 @@
                             />
                         </div>
 
-                        {/* 1st Choice */}
-                        <div className="p-4 border rounded-lg bg-indigo-50/30 border-indigo-100">
-                            <h3 className="font-semibold text-indigo-700 mb-2">1st Priority Choice</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 mb-1">Start Date</label>
-                                    <input 
-                                        type="date" 
-                                        min="2027-01-01" 
-                                        max="2027-12-31" 
-                                        className="w-full border rounded p-2 text-sm"
-                                        value={first.start}
-                                        onChange={(e) => setFirst({...first, start: e.target.value})}
-                                    />
+                        {[
+                            { label: '1st Priority Choice', state: first, setter: setFirst, bg: 'bg-indigo-50/30', border: 'border-indigo-100', titleColor: 'text-indigo-700' },
+                            { label: '2nd Priority Choice', state: second, setter: setSecond, bg: 'bg-blue-50/30', border: 'border-blue-100', titleColor: 'text-blue-700' },
+                            { label: '3rd Priority Choice', state: third, setter: setThird, bg: 'bg-teal-50/30', border: 'border-teal-100', titleColor: 'text-teal-700' }
+                        ].map((choice, idx) => (
+                            <div key={idx} className={`p-4 border rounded-lg ${choice.bg} ${choice.border}`}>
+                                <h3 className={`font-semibold ${choice.titleColor} mb-2`}>{choice.label}</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-600 mb-1">Start Date</label>
+                                        <input 
+                                            type="date" 
+                                            min="2027-01-01" 
+                                            max="2027-12-31" 
+                                            className="w-full border rounded p-2 text-sm"
+                                            value={choice.state.start}
+                                            onChange={(e) => choice.setter({...choice.state, start: e.target.value})}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-600 mb-1">End Date</label>
+                                        <input 
+                                            type="date" 
+                                            min="2027-01-01" 
+                                            max="2027-12-31" 
+                                            className="w-full border rounded p-2 text-sm"
+                                            value={choice.state.end}
+                                            onChange={(e) => choice.setter({...choice.state, end: e.target.value})}
+                                        />
+                                    </div>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 mb-1">End Date</label>
-                                    <input 
-                                        type="date" 
-                                        min="2027-01-01" 
-                                        max="2027-12-31" 
-                                        className="w-full border rounded p-2 text-sm"
-                                        value={first.end}
-                                        onChange={(e) => setFirst({...first, end: e.target.value})}
-                                    />
-                                </div>
+                                <p className="text-xs text-slate-500 mt-2">Working days selected: {countWorkingDays(choice.state.start, choice.state.end)}</p>
                             </div>
-                            <p className="text-xs text-slate-500 mt-2">Working days selected: {countWorkingDays(first.start, first.end)}</p>
-                        </div>
-
-                        {/* 2nd Choice */}
-                        <div className="p-4 border rounded-lg bg-blue-50/30 border-blue-100">
-                            <h3 className="font-semibold text-blue-700 mb-2">2nd Priority Choice</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 mb-1">Start Date</label>
-                                    <input 
-                                        type="date" 
-                                        min="2027-01-01" 
-                                        max="2027-12-31" 
-                                        className="w-full border rounded p-2 text-sm"
-                                        value={second.start}
-                                        onChange={(e) => setSecond({...second, start: e.target.value})}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 mb-1">End Date</label>
-                                    <input 
-                                        type="date" 
-                                        min="2027-01-01" 
-                                        max="2027-12-31" 
-                                        className="w-full border rounded p-2 text-sm"
-                                        value={second.end}
-                                        onChange={(e) => setSecond({...second, end: e.target.value})}
-                                    />
-                                </div>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-2">Working days selected: {countWorkingDays(second.start, second.end)}</p>
-                        </div>
-
-                        {/* 3rd Choice */}
-                        <div className="p-4 border rounded-lg bg-teal-50/30 border-teal-100">
-                            <h3 className="font-semibold text-teal-700 mb-2">3rd Priority Choice</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 mb-1">Start Date</label>
-                                    <input 
-                                        type="date" 
-                                        min="2027-01-01" 
-                                        max="2027-12-31" 
-                                        className="w-full border rounded p-2 text-sm"
-                                        value={third.start}
-                                        onChange={(e) => setThird({...third, start: e.target.value})}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-600 mb-1">End Date</label>
-                                    <input 
-                                        type="date" 
-                                        min="2027-01-01" 
-                                        max="2027-12-31" 
-                                        className="w-full border rounded p-2 text-sm"
-                                        value={third.end}
-                                        onChange={(e) => setThird({...third, end: e.target.value})}
-                                    />
-                                </div>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-2">Working days selected: {countWorkingDays(third.start, third.end)}</p>
-                        </div>
+                        ))}
 
                         <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2 rounded-lg hover:bg-indigo-700 transition">
                             Save Leave Selection Choices
@@ -402,7 +338,6 @@
             );
         }
 
-        // --- ADMIN VIEW COMPONENT ---
         function AdminView({ applications, setApplications }) {
             const handleFinalApproval = (appId, choiceName) => {
                 const updated = applications.map(app => {
