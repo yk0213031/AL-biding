@@ -16,17 +16,13 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // Mock initial 80 users or sample dataset
-        const INITIAL_USERS = Array.from({ length: 80 }, (_, i) => ({
-            id: i + 1,
-            name: i === 0 ? "Admin User" : `Employee ${i + 1}`,
-            role: i === 0 ? "admin" : "employee"
-        }));
-
         function App() {
             const [currentView, setCurrentView] = useState('summary'); // summary, apply, admin
-            const [currentUser, setCurrentUser] = useState(INITIAL_USERS[0]); // default to admin or switch
-            const [users, setUsers] = useState(INITIAL_USERS);
+            const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
+            const [adminPasswordInput, setAdminPasswordInput] = useState('');
+            const [adminError, setAdminError] = useState(false);
+
+            // Load saved applications from localStorage
             const [applications, setApplications] = useState(() => {
                 const saved = localStorage.getItem('leave_applications_2027');
                 return saved ? JSON.parse(saved) : [];
@@ -36,6 +32,17 @@
                 localStorage.setItem('leave_applications_2027', JSON.stringify(applications));
             }, [applications]);
 
+            const handleAdminAccess = (e) => {
+                e.preventDefault();
+                if (adminPasswordInput === '7851') {
+                    setIsAdminUnlocked(true);
+                    setAdminError(false);
+                    setCurrentView('admin');
+                } else {
+                    setAdminError(true);
+                }
+            };
+
             return (
                 <div className="min-h-screen flex flex-col">
                     {/* Header */}
@@ -44,23 +51,6 @@
                             <h1 className="text-xl font-bold flex items-center gap-2">
                                 <i data-lucide="calendar"></i> 2027 Annual Leave Planner
                             </h1>
-                            <div className="flex items-center gap-4">
-                                <span className="text-sm bg-indigo-700 px-3 py-1 rounded-full">
-                                    Logged in as: <strong>{currentUser.name}</strong> ({currentUser.role.toUpperCase()})
-                                </span>
-                                <select 
-                                    className="bg-indigo-500 text-white text-sm rounded px-2 py-1 border border-indigo-400"
-                                    value={currentUser.id}
-                                    onChange={(e) => {
-                                        const found = users.find(u => u.id === Number(e.target.value));
-                                        setCurrentUser(found);
-                                    }}
-                                >
-                                    {users.map(u => (
-                                        <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                                    ))}
-                                </select>
-                            </div>
                         </div>
                         {/* Navigation Tabs */}
                         <div className="max-w-7xl mx-auto px-4 flex gap-2 border-t border-indigo-500 pt-2 pb-2">
@@ -76,22 +66,48 @@
                             >
                                 My Leave Application
                             </button>
-                            {currentUser.role === 'admin' && (
-                                <button 
-                                    onClick={() => setCurrentView('admin')}
-                                    className={`px-4 py-2 rounded text-sm font-medium transition ${currentView === 'admin' ? 'bg-white text-indigo-600 shadow' : 'text-indigo-100 hover:bg-indigo-500'}`}
-                                >
-                                    Admin Panel
-                                </button>
-                            )}
+                            <button 
+                                onClick={() => {
+                                    if (isAdminUnlocked) {
+                                        setCurrentView('admin');
+                                    } else {
+                                        setCurrentView('admin-login');
+                                    }
+                                }}
+                                className={`px-4 py-2 rounded text-sm font-medium transition ${(currentView === 'admin' || currentView === 'admin-login') ? 'bg-white text-indigo-600 shadow' : 'text-indigo-100 hover:bg-indigo-500'}`}
+                            >
+                                Admin Panel
+                            </button>
                         </div>
                     </header>
 
                     {/* Main Content Area */}
                     <main className="flex-grow max-w-7xl w-full mx-auto p-4 md:p-6">
-                        {currentView === 'summary' && <SummaryView applications={applications} users={users} />}
-                        {currentView === 'apply' && <ApplyView currentUser={currentUser} applications={applications} setApplications={setApplications} />}
-                        {currentView === 'admin' && currentUser.role === 'admin' && <AdminView applications={applications} setApplications={setApplications} users={users} />}
+                        {currentView === 'summary' && <SummaryView applications={applications} />}
+                        {currentView === 'apply' && <ApplyView applications={applications} setApplications={setApplications} />}
+                        {currentView === 'admin-login' && !isAdminUnlocked && (
+                            <div className="max-w-md mx-auto bg-white p-6 rounded-xl shadow-sm border mt-10">
+                                <h2 className="text-xl font-bold text-slate-800 mb-2">Admin Authentication Required</h2>
+                                <p className="text-sm text-slate-600 mb-4">Please enter the administrator password to access the panel.</p>
+                                <form onSubmit={handleAdminAccess} className="space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-medium text-slate-600 mb-1">Password</label>
+                                        <input 
+                                            type="password" 
+                                            className="w-full border rounded p-2 text-sm"
+                                            value={adminPasswordInput}
+                                            onChange={(e) => setAdminPasswordInput(e.target.value)}
+                                            placeholder="Enter admin password"
+                                        />
+                                    </div>
+                                    {adminError && <p className="text-xs text-red-600">Incorrect password. Please try again (Code: 7851).</p>}
+                                    <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2 rounded-lg hover:bg-indigo-700 transition">
+                                        Login to Admin Panel
+                                    </button>
+                                </form>
+                            </div>
+                        )}
+                        {currentView === 'admin' && isAdminUnlocked && <AdminView applications={applications} setApplications={setApplications} />}
                     </main>
 
                     <footer className="bg-white border-t py-4 text-center text-xs text-slate-500">
@@ -102,24 +118,23 @@
         }
 
         // --- SUMMARY VIEW COMPONENT ---
-        function SummaryView({ applications, users }) {
+        function SummaryView({ applications }) {
             const months = [
                 "January", "February", "March", "April", "May", "June", 
                 "July", "August", "September", "October", "November", "December"
             ];
 
-            // Helper to check if a date has any selections
+            const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
             const getSelectionsForDate = (dateStr) => {
                 const results = [];
                 applications.forEach(app => {
-                    const user = users.find(u => u.id === app.userId);
-                    const userName = user ? user.name : "Unknown";
-
+                    const applicantName = app.name || "Anonymous";
                     ['first', 'second', 'third'].forEach(choiceKey => {
                         const choice = app[choiceKey];
                         if (choice && choice.start && choice.end) {
                             if (dateStr >= choice.start && dateStr <= choice.end) {
-                                results.push({ name: userName, rank: choiceKey });
+                                results.push({ name: applicantName, rank: choiceKey });
                             }
                         }
                     });
@@ -131,47 +146,51 @@
                 <div className="space-y-6">
                     <div className="bg-white p-6 rounded-xl shadow-sm border">
                         <h2 className="text-xl font-bold text-slate-800 mb-2">2027 Company Leave Summary</h2>
-                        <p className="text-sm text-slate-600 mb-4">
-                            Overview of all team member choices. Colors indicate priority: 
+                        <p className="text-sm text-slate-600 mb-6">
+                            Vertical month view showing workdays (Monday to Friday) and colleague choices: 
                             <span className="inline-block w-3 h-3 bg-indigo-600 rounded-full mx-1"></span> 1st Choice | 
                             <span className="inline-block w-3 h-3 bg-blue-400 rounded-full mx-1"></span> 2nd Choice | 
                             <span className="inline-block w-3 h-3 bg-teal-400 rounded-full mx-1"></span> 3rd Choice
                         </p>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                             {months.map((monthName, mIndex) => {
                                 const monthNum = mIndex + 1;
                                 const daysInMonth = new Date(2027, monthNum, 0).getDate();
                                 
                                 return (
-                                    <div key={monthName} className="border rounded-lg p-4 bg-slate-50/50">
-                                        <h3 className="font-semibold text-indigo-700 mb-3 border-b pb-1">{monthName} 2027</h3>
-                                        <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
+                                    <div key={monthName} className="border rounded-lg p-4 bg-slate-50/50 flex flex-col">
+                                        <h3 className="font-bold text-indigo-700 mb-3 border-b pb-2 text-center text-base">{monthName} 2027</h3>
+                                        <div className="space-y-1.5 overflow-y-auto max-h-96 pr-1">
                                             {Array.from({ length: daysInMonth }, (_, dIndex) => {
                                                 const dayNum = dIndex + 1;
                                                 const formattedMonth = String(monthNum).padStart(2, '0');
                                                 const formattedDay = String(dayNum).padStart(2, '0');
                                                 const dateStr = `2027-${formattedMonth}-${formattedDay}`;
                                                 
-                                                const dayOfWeek = new Date(dateStr).getDay();
-                                                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                                                if (isWeekend) return null; // Only show Mon-Fri
+                                                const dateObj = new Date(dateStr);
+                                                const dayOfWeekIndex = dateObj.getDay();
+                                                const isWeekend = dayOfWeekIndex === 0 || dayOfWeekIndex === 6;
+                                                if (isWeekend) return null; // Show Monday to Friday only
 
+                                                const dayOfWeekName = weekdays[dayOfWeekIndex];
                                                 const activeSelections = getSelectionsForDate(dateStr);
 
                                                 return (
-                                                    <div key={dateStr} className="text-xs flex items-center justify-between bg-white px-2 py-1 rounded border border-slate-100">
-                                                        <span className="font-medium text-slate-500 w-16">{monthName.slice(0,3)} {dayNum}</span>
+                                                    <div key={dateStr} className="text-xs flex items-center justify-between bg-white px-2 py-1.5 rounded border border-slate-100 shadow-2xs">
+                                                        <span className="font-semibold text-slate-600 w-20">
+                                                            {dayOfWeekName}, {dayNum}
+                                                        </span>
                                                         <div className="flex flex-wrap gap-1 justify-end flex-grow">
                                                             {activeSelections.length === 0 ? (
-                                                                <span className="text-slate-300 italic">No selection</span>
+                                                                <span className="text-slate-300 italic">-</span>
                                                             ) : (
                                                                 activeSelections.map((sel, idx) => {
                                                                     let colorBg = "bg-indigo-600 text-white";
-                                                                    if (sel.rank === 'second') colorBg = "bg-blue-400 text-white";
-                                                                    if (sel.rank === 'third') colorBg = "bg-teal-400 text-white";
+                                                                    if (sel.rank === 'second') colorBg = "bg-blue-500 text-white";
+                                                                    if (sel.rank === 'third') colorBg = "bg-teal-500 text-white";
                                                                     return (
-                                                                        <span key={idx} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colorBg}`} title={`${sel.rank.toUpperCase()} choice`}>
+                                                                        <span key={idx} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colorBg}`} title={`${sel.name} - ${sel.rank.toUpperCase()} choice`}>
                                                                             {sel.name} ({sel.rank[0].toUpperCase()})
                                                                         </span>
                                                                     );
@@ -192,20 +211,13 @@
         }
 
         // --- APPLICATION VIEW COMPONENT ---
-        function ApplyView({ currentUser, applications, setApplications }) {
-            const existingApp = applications.find(a => a.userId === currentUser.id) || {
-                userId: currentUser.id,
-                first: { start: '', end: '' },
-                second: { start: '', end: '' },
-                third: { start: '', end: '' }
-            };
-
-            const [first, setFirst] = useState(existingApp.first);
-            const [second, setSecond] = useState(existingApp.second);
-            const [third, setThird] = useState(existingApp.third);
+        function ApplyView({ applications, setApplications }) {
+            const [name, setName] = useState('');
+            const [first, setFirst] = useState({ start: '', end: '' });
+            const [second, setSecond] = useState({ start: '', end: '' });
+            const [third, setThird] = useState({ start: '', end: '' });
             const [message, setMessage] = useState({ text: '', type: '' });
 
-            // Helper to count working days (Mon-Fri)
             const countWorkingDays = (startDate, endDate) => {
                 if (!startDate || !endDate) return 0;
                 let start = new Date(startDate);
@@ -223,7 +235,7 @@
             };
 
             const validateChoice = (choice, label) => {
-                if (!choice.start && !choice.end) return true; // optional or handled
+                if (!choice.start && !choice.end) return true;
                 if (!choice.start || !choice.end) {
                     setMessage({ text: `${label} choice must have both start and end date.`, type: 'error' });
                     return false;
@@ -240,19 +252,27 @@
                 e.preventDefault();
                 setMessage({ text: '', type: '' });
 
+                if (!name.trim()) {
+                    setMessage({ text: 'Please enter your applicant name first.', type: 'error' });
+                    return;
+                }
+
                 if (!validateChoice(first, "1st")) return;
                 if (!validateChoice(second, "2nd")) return;
                 if (!validateChoice(third, "3rd")) return;
 
                 const newApp = {
-                    userId: currentUser.id,
+                    id: Date.now(),
+                    name: name.trim(),
                     first,
                     second,
                     third,
+                    finalAssigned: null,
                     updatedAt: new Date().toISOString()
                 };
 
-                const filtered = applications.filter(a => a.userId !== currentUser.id);
+                // Replace or append by name
+                const filtered = applications.filter(a => a.name.toLowerCase() !== name.trim().toLowerCase());
                 setApplications([...filtered, newApp]);
                 setMessage({ text: 'Leave wish choices successfully saved!', type: 'success' });
             };
@@ -261,7 +281,7 @@
                 <div className="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-sm border">
                     <h2 className="text-xl font-bold text-slate-800 mb-1">Submit Your 2027 Leave Wishes</h2>
                     <p className="text-sm text-slate-600 mb-6">
-                        Provide your 1st, 2nd, and 3rd choices. Each choice must range from <strong>1 to 5 working days</strong> (Monday to Friday).
+                        Enter your name first, then provide your 1st, 2nd, and 3rd choices. Each choice must range from <strong>1 to 5 working days</strong> (Monday to Friday).
                     </p>
 
                     {message.text && (
@@ -271,6 +291,19 @@
                     )}
 
                     <form onSubmit={handleSave} className="space-y-6">
+                        {/* Name Input */}
+                        <div className="p-4 border rounded-lg bg-slate-50 border-slate-200">
+                            <label className="block text-sm font-bold text-slate-700 mb-1">Applicant Full Name</label>
+                            <input 
+                                type="text" 
+                                required
+                                className="w-full border rounded p-2 text-sm bg-white"
+                                placeholder="e.g. John Doe"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                            />
+                        </div>
+
                         {/* 1st Choice */}
                         <div className="p-4 border rounded-lg bg-indigo-50/30 border-indigo-100">
                             <h3 className="font-semibold text-indigo-700 mb-2">1st Priority Choice</h3>
@@ -370,49 +403,116 @@
         }
 
         // --- ADMIN VIEW COMPONENT ---
-        function AdminView({ applications, setApplications, users }) {
+        function AdminView({ applications, setApplications }) {
+            const handleFinalApproval = (appId, choiceName) => {
+                const updated = applications.map(app => {
+                    if (app.id === appId) {
+                        return { ...app, finalAssigned: app[choiceName] };
+                    }
+                    return app;
+                });
+                setApplications(updated);
+            };
+
+            const handleClearFinal = (appId) => {
+                const updated = applications.map(app => {
+                    if (app.id === appId) {
+                        return { ...app, finalAssigned: null };
+                    }
+                    return app;
+                });
+                setApplications(updated);
+            };
+
             return (
-                <div className="bg-white p-6 rounded-xl shadow-sm border space-xl">
-                    <h2 className="text-xl font-bold text-slate-800 mb-1">Admin Dashboard - All Submissions</h2>
-                    <p className="text-sm text-slate-600 mb-6">Review choices submitted by all 80 staff members and assign final results.</p>
+                <div className="bg-white p-6 rounded-xl shadow-sm border space-y-6">
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-800 mb-1">Admin Dashboard - Manage Leave Results</h2>
+                        <p className="text-sm text-slate-600">Review employee submissions and select final confirmed dates.</p>
+                    </div>
 
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-sm">
                             <thead>
                                 <tr className="bg-slate-100 border-b text-slate-700">
-                                    <th className="p-3">Employee Name</th>
+                                    <th className="p-3">Applicant Name</th>
                                     <th className="p-3">1st Choice</th>
                                     <th className="p-3">2nd Choice</th>
                                     <th className="p-3">3rd Choice</th>
-                                    <th className="p-3">Action / Status</th>
+                                    <th className="p-3">Final Confirmed Status</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {users.map(user => {
-                                    const app = applications.find(a => a.userId === user.id);
-                                    return (
-                                        <tr key={user.id} className="border-b hover:bg-slate-50">
-                                            <td className="p-3 font-medium text-slate-800">{user.name}</td>
+                                {applications.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="5" className="p-4 text-center text-slate-400 italic">No leave submissions recorded yet.</td>
+                                    </tr>
+                                ) : (
+                                    applications.map(app => (
+                                        <tr key={app.id} className="border-b hover:bg-slate-50">
+                                            <td className="p-3 font-medium text-slate-800">{app.name}</td>
                                             <td className="p-3 text-xs">
-                                                {app && app.first.start ? `${app.first.start} to ${app.first.end}` : <span className="text-slate-400">None</span>}
+                                                {app.first.start ? (
+                                                    <div>
+                                                        <span>{app.first.start} to {app.first.end}</span>
+                                                        <br />
+                                                        <button 
+                                                            onClick={() => handleFinalApproval(app.id, 'first')}
+                                                            className="mt-1 bg-indigo-100 text-indigo-700 hover:bg-indigo-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-medium transition"
+                                                        >
+                                                            Set as Final
+                                                        </button>
+                                                    </div>
+                                                ) : <span className="text-slate-400">None</span>}
                                             </td>
                                             <td className="p-3 text-xs">
-                                                {app && app.second.start ? `${app.second.start} to ${app.second.end}` : <span className="text-slate-400">None</span>}
+                                                {app.second.start ? (
+                                                    <div>
+                                                        <span>{app.second.start} to {app.second.end}</span>
+                                                        <br />
+                                                        <button 
+                                                            onClick={() => handleFinalApproval(app.id, 'second')}
+                                                            className="mt-1 bg-blue-100 text-blue-700 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-medium transition"
+                                                        >
+                                                            Set as Final
+                                                        </button>
+                                                    </div>
+                                                ) : <span className="text-slate-400">None</span>}
                                             </td>
                                             <td className="p-3 text-xs">
-                                                {app && app.third.start ? `${app.third.start} to ${app.third.end}` : <span className="text-slate-400">None</span>}
+                                                {app.third.start ? (
+                                                    <div>
+                                                        <span>{app.third.start} to {app.third.end}</span>
+                                                        <br />
+                                                        <button 
+                                                            onClick={() => handleFinalApproval(app.id, 'third')}
+                                                            className="mt-1 bg-teal-100 text-teal-700 hover:bg-teal-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-medium transition"
+                                                        >
+                                                            Set as Final
+                                                        </button>
+                                                    </div>
+                                                ) : <span className="text-slate-400">None</span>}
                                             </td>
-                                            <td className="p-3">
-                                                <button 
-                                                    className="text-xs bg-slate-200 hover:bg-indigo-600 hover:text-white px-2.5 py-1 rounded transition"
-                                                    onClick={() => alert(`Reviewing details for ${user.name}`)}
-                                                >
-                                                    Manage Final
-                                                </button>
+                                            <td className="p-3 text-xs">
+                                                {app.finalAssigned && app.finalAssigned.start ? (
+                                                    <div className="bg-emerald-50 border border-emerald-200 p-2 rounded">
+                                                        <span className="font-semibold text-emerald-700 block">Confirmed:</span>
+                                                        <span>{app.finalAssigned.start} to {app.finalAssigned.end}</span>
+                                                        <br />
+                                                        <button 
+                                                            onClick={() => handleClearFinal(app.id)}
+                                                            className="mt-1 text-red-600 hover:underline text-[10px]"
+                                                        >
+                                                            Clear
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-200">Pending Selection</span>
+                                                )}
                                             </td>
                                         </tr>
-                                    );
-                                })}
+                                    ))
+                                )}
                             </tbody>
                         </table>
                     </div>
