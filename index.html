@@ -51,6 +51,7 @@ const LEAVE_REF = db.ref('leave_applications');
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const ADMIN_PASS = '7851';
+const HIGH_DEMAND_THRESHOLD = 10;
 
 function parseDateRange(str) {
   if (!str || typeof str !== 'string') return null;
@@ -285,21 +286,20 @@ function App() {
 
   const conflicts = getConflicts(choices);
 
-  // Summary calendar with interactive detail panel
+  // Summary calendar with interactive detail panel + high demand warning
   const SummaryCalendar = () => {
     const [selectedDate, setSelectedDate] = useState(null);
-    const approved = allApps.filter(a => a.status === 'approved');
 
-    // Build a map: "YYYY-MM-DD" -> [names]
+    // Build a map: "YYYY-MM-DD" -> [{name, choice, status}]
     const dateMap = {};
-    approved.forEach(app => {
+    allApps.forEach(app => {
       app.choices?.forEach(c => {
         const p = parseDateRange(c);
         if (!p) return;
         getDatesInRange(p.start, p.end).forEach(d => {
           const key = d.toISOString().slice(0,10);
           if (!dateMap[key]) dateMap[key] = [];
-          dateMap[key].push({ name: app.name, choice: c });
+          dateMap[key].push({ name: app.name, choice: c, status: app.status || 'pending' });
         });
       });
     });
@@ -309,12 +309,14 @@ function App() {
       return dateMap[key]?.length || 0;
     };
 
-    const getNames = (date) => {
+    const getEntries = (date) => {
       const key = date.toISOString().slice(0,10);
       return dateMap[key] || [];
     };
 
-    const selectedNames = selectedDate ? getNames(selectedDate) : [];
+    const selectedEntries = selectedDate ? getEntries(selectedDate) : [];
+    const selectedCount = selectedEntries.length;
+    const isHighDemand = selectedCount >= HIGH_DEMAND_THRESHOLD;
 
     return (
       <div className="flex flex-col lg:flex-row gap-6">
@@ -331,27 +333,42 @@ function App() {
               const dow = date.getDay();
               const isWe = dow === 0 || dow === 6;
               const count = getCount(date);
+              const isHigh = count >= HIGH_DEMAND_THRESHOLD;
               const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();
-              // Heat color: white -> light blue -> dark blue based on count
+              
+              // Heat color: white -> blue for normal, orange/red for high demand
               let bg = '';
               if (count > 0) {
-                const intensity = Math.min(count / 15, 1);
-                const r = Math.round(219 - intensity * 180);
-                const g = Math.round(234 - intensity * 180);
-                const b = 254;
-                bg = `rgb(${r},${g},${b})`;
+                if (isHigh) {
+                  // Orange-red gradient for high demand
+                  const intensity = Math.min((count - HIGH_DEMAND_THRESHOLD) / 10, 1);
+                  const r = 254;
+                  const g = Math.round(215 - intensity * 100);
+                  const b = Math.round(165 - intensity * 100);
+                  bg = `rgb(${r},${g},${b})`;
+                } else {
+                  // Blue gradient for normal
+                  const intensity = Math.min(count / HIGH_DEMAND_THRESHOLD, 1);
+                  const r = Math.round(219 - intensity * 180);
+                  const g = Math.round(234 - intensity * 180);
+                  const b = 254;
+                  bg = `rgb(${r},${g},${b})`;
+                }
               }
+              
               cells.push(
                 <div
                   key={d}
                   onClick={() => setSelectedDate(date)}
                   className={`cal-cell flex-col cursor-pointer transition-colors ${isWe?'weekend':''} ${isSelected?'ring-2 ring-blue-600':''}`}
                   style={count > 0 ? { backgroundColor: bg } : {}}
-                  title={`${count} applicant${count!==1?'s':''}`}
+                  title={`${count} applicant${count!==1?'s':''}${isHigh?' ⚠️ HIGH DEMAND':''}`}
                 >
                   <span className="font-medium">{d}</span>
                   {count > 0 && (
-                    <span className="text-[10px] font-bold text-blue-800">{count}</span>
+                    <span className={`text-[10px] font-bold ${isHigh?'text-red-700':'text-blue-800'}`}>
+                      {count}
+                    </span>
                   )}
                 </div>
               );
@@ -376,15 +393,29 @@ function App() {
                 <h3 className="font-bold text-lg mb-1">
                   {selectedDate.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}
                 </h3>
-                <p className="text-sm text-gray-500 mb-3">{selectedNames.length} applicant{selectedNames.length!==1?'s':''}</p>
-                {selectedNames.length === 0 ? (
+                <div className="flex items-center gap-2 mb-3">
+                  <p className="text-sm text-gray-500">{selectedCount} applicant{selectedCount!==1?'s':''}</p>
+                  {isHighDemand && (
+                    <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded animate-pulse">
+                      ⚠️ HIGH DEMAND
+                    </span>
+                  )}
+                </div>
+                {selectedCount === 0 ? (
                   <p className="text-gray-400 italic">No applications on this date</p>
                 ) : (
                   <ul className="space-y-1.5 max-h-[60vh] overflow-y-auto">
-                    {selectedNames.map((item, i) => (
+                    {selectedEntries.map((item, i) => (
                       <li key={i} className="text-sm border-b pb-1 last:border-0">
-                        <span className="font-medium text-blue-800">{item.name}</span>
-                        <span className="text-gray-500 ml-1 text-xs">({item.choice})</span>
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-blue-800">{item.name}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            item.status==='approved'?'bg-green-100 text-green-700':
+                            item.status==='revoked'?'bg-red-100 text-red-700':
+                            'bg-yellow-100 text-yellow-700'
+                          }`}>{item.status}</span>
+                        </div>
+                        <span className="text-gray-500 text-xs">{item.choice}</span>
                       </li>
                     ))}
                   </ul>
