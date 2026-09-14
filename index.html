@@ -8,189 +8,476 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f3f4f6; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; }
+        .day-cell { min-height: 60px; padding: 4px; font-size: 12px; border: 1px solid #e5e7eb; background: white; position: relative; }
+        .day-cell.weekend { background: #f9fafb; color: #9ca3af; }
+        .selected { background: #dbeafe !important; border-color: #3b82f6 !important; }
+        .winner { background: #dcfce7 !important; border-color: #22c55e !important; }
+        .conflict { background: #fee2e2 !important; border-color: #ef4444 !important; }
+        .month-card { break-inside: avoid; margin-bottom: 16px; }
+        @media print { .no-print { display: none !important; } }
+    </style>
 </head>
-<body class="bg-slate-50 text-slate-800">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useMemo } = React;
 
+        // --- Constants & Helpers ---
+        const YEAR = 2027;
+        const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        const WEEKDAYS = ["Mon","Tue","Wed","Thu","Fri"];
+        const STORAGE_KEY = "leave_app_2027_v3";
+        const ADMIN_PASS = "7851";
+
+        const getDaysInMonth = (m) => new Date(YEAR, m + 1, 0).getDate();
+        const getDayOfWeek = (d, m) => { const day = new Date(YEAR, m, d).getDay(); return day === 0 ? 6 : day - 1; }; // 0=Mon, 6=Sun
+        const isWeekend = (d, m) => getDayOfWeek(d, m) >= 5;
+        const formatDate = (d, m) => `${YEAR}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
+        // --- Components ---
+
+        // 1. Horizontal Month Calendar Component
+        const MonthCalendar = ({ monthIndex, selections, winners, onToggle, mode = "view", applicantName = "" }) => {
+            const daysInMonth = getDaysInMonth(monthIndex);
+            const cells = [];
+            
+            // Build weeks rows
+            let currentWeek = [];
+            const firstDayOffset = getDayOfWeek(1, monthIndex); // 0-4 for Mon-Fri
+            
+            // Pad start if needed (only weekdays matter, but we align visually)
+            // Since we only show Mon-Fri, we just iterate days and chunk by 5
+            for (let d = 1; d <= daysInMonth; d++) {
+                if (isWeekend(d, monthIndex)) continue;
+                
+                const dateStr = formatDate(d, monthIndex);
+                const isSelected = selections.some(s => s.date === dateStr);
+                const isWinner = winners.some(w => w.date === dateStr);
+                const others = selections.filter(s => s.date === dateStr && s.name !== applicantName);
+                const hasConflict = others.length > 0;
+                
+                let className = "day-cell cursor-pointer hover:bg-gray-50 transition-colors";
+                if (isWinner) className += " winner";
+                else if (isSelected) className += " selected";
+                if (hasConflict && mode === "apply") className += " conflict";
+
+                cells.push(
+                    <div key={d} 
+                         className={className}
+                         onClick={() => mode === "apply" && !isWinner && onToggle(dateStr)}>
+                        <div className="font-bold text-gray-700">{d}</div>
+                        {isWinner && <div className="text-[10px] text-green-700 font-bold mt-1">✓ Approved</div>}
+                        {isSelected && !isWinner && <div className="text-[10px] text-blue-600 mt-1">{applicantName ? "You" : "Selected"}</div>}
+                        {hasConflict && mode === "apply" && (
+                            <div className="text-[10px] text-red-500 mt-1 truncate" title={others.map(o=>o.name).join(", ")}>
+                                ⚠ {others.length} other{others.length>1?"s":""}
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+
+            return (
+                <div className="month-card bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                    <h3 className="text-lg font-bold text-gray-800 mb-3 border-b pb-2">{MONTHS[monthIndex]} {YEAR}</h3>
+                    <div className="calendar-grid mb-1">
+                        {WEEKDAYS.map(w => <div key={w} className="text-xs font-bold text-center text-gray-500 py-1">{w}</div>)}
+                    </div>
+                    <div className="calendar-grid">
+                        {cells}
+                    </div>
+                </div>
+            );
+        };
+
+        // Main App
         function App() {
-            const [currentView, setCurrentView] = useState('summary');
-            const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
-            const [adminPasswordInput, setAdminPasswordInput] = useState('');
-            const [adminError, setAdminError] = useState(false);
+            const [view, setView] = useState("summary"); // summary, apply, admin
+            const [data, setData] = useState({ applications: [], winners: [] });
+            const [adminAuth, setAdminAuth] = useState(false);
+            const [adminPassInput, setAdminPassInput] = useState("");
 
-            const [applications, setApplications] = useState(() => {
-                const saved = localStorage.getItem('leave_applications_2027_v2');
-                return saved ? JSON.parse(saved) : [];
-            });
-
+            // Load data
             useEffect(() => {
-                localStorage.setItem('leave_applications_2027_v2', JSON.stringify(applications));
-            }, [applications]);
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) setData(JSON.parse(saved));
+            }, []);
 
-            const handleAdminAccess = (e) => {
-                e.preventDefault();
-                if (adminPasswordInput === '7851') {
-                    setIsAdminUnlocked(true);
-                    setAdminError(false);
-                    setCurrentView('admin');
+            // Save data
+            const saveData = (newData) => {
+                setData(newData);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
+            };
+
+            // --- Application Logic ---
+            const [appName, setAppName] = useState("");
+            const [choices, setChoices] = useState({ c1: [], c2: [], c3: [] });
+            const [activeChoice, setActiveChoice] = useState("c1");
+            const [alertMsg, setAlertMsg] = useState("");
+
+            const handleDateToggle = (dateStr) => {
+                if (!appName.trim()) {
+                    alert("Please enter your full name first.");
+                    return;
+                }
+                
+                const currentArr = [...choices[activeChoice]];
+                const idx = currentArr.indexOf(dateStr);
+                
+                // Check total days across all choices (max 5)
+                const totalSelected = choices.c1.length + choices.c2.length + choices.c3.length;
+                
+                if (idx === -1) {
+                    if (totalSelected >= 5) {
+                        alert("Maximum 5 days total across all choices.");
+                        return;
+                    }
+                    // Remove from other choices if exists
+                    const newChoices = { ...choices };
+                    ["c1","c2","c3"].forEach(k => {
+                        newChoices[k] = newChoices[k].filter(d => d !== dateStr);
+                    });
+                    newChoices[activeChoice].push(dateStr);
+                    newChoices[activeChoice].sort();
+                    setChoices(newChoices);
+                    
+                    // Conflict Alert
+                    const conflicts = data.applications.filter(a => 
+                        a.name !== appName && 
+                        [a.c1, a.c2, a.c3].some(arr => arr.includes(dateStr))
+                    );
+                    if (conflicts.length > 0) {
+                        setAlertMsg(`⚠ Warning: ${conflicts.map(c=>c.name).join(", ")} also selected ${dateStr}. Admin will decide.`);
+                    } else {
+                        setAlertMsg("");
+                    }
                 } else {
-                    setAdminError(true);
+                    currentArr.splice(idx, 1);
+                    setChoices({ ...choices, [activeChoice]: currentArr });
+                    setAlertMsg("");
                 }
             };
 
-            return (
-                <div className="min-h-screen flex flex-col">
-                    <header className="bg-indigo-600 text-white shadow-md">
-                        <div className="max-w-7xl mx-auto px-4 py-4">
-                            <h1 className="text-xl font-bold flex items-center gap-2">
-                                <i data-lucide="calendar"></i> 2027 Annual Leave Planner
-                            </h1>
-                        </div>
-                        <div className="max-w-7xl mx-auto px-4 flex gap-2 border-t border-indigo-500 pt-2 pb-2">
-                            <button 
-                                onClick={() => setCurrentView('summary')}
-                                className={`px-4 py-2 rounded text-sm font-medium transition ${currentView === 'summary' ? 'bg-white text-indigo-600 shadow' : 'text-indigo-100 hover:bg-indigo-500'}`}
-                            >
-                                Summary Calendar
-                            </button>
-                            <button 
-                                onClick={() => setCurrentView('apply')}
-                                className={`px-4 py-2 rounded text-sm font-medium transition ${currentView === 'apply' ? 'bg-white text-indigo-600 shadow' : 'text-indigo-100 hover:bg-indigo-500'}`}
-                            >
-                                My Leave Application
-                            </button>
-                            <button 
-                                onClick={() => {
-                                    if (isAdminUnlocked) {
-                                        setCurrentView('admin');
-                                    } else {
-                                        setCurrentView('admin-login');
-                                    }
-                                }}
-                                className={`px-4 py-2 rounded text-sm font-medium transition ${(currentView === 'admin' || currentView === 'admin-login') ? 'bg-white text-indigo-600 shadow' : 'text-indigo-100 hover:bg-indigo-500'}`}
-                            >
-                                Admin Panel
-                            </button>
-                        </div>
-                    </header>
-
-                    <main className="flex-grow max-w-7xl w-full mx-auto p-4 md:p-6">
-                        {currentView === 'summary' && <SummaryView applications={applications} />}
-                        {currentView === 'apply' && <ApplyView applications={applications} setApplications={setApplications} />}
-                        {currentView === 'admin-login' && !isAdminUnlocked && (
-                            <div className="max-w-md mx-auto bg-white p-6 rounded-xl shadow-sm border mt-10">
-                                <h2 className="text-xl font-bold text-slate-800 mb-2">Admin Authentication Required</h2>
-                                <p className="text-sm text-slate-600 mb-4">Please enter the administrator password to access the panel.</p>
-                                <form onSubmit={handleAdminAccess} className="space-y-4">
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-600 mb-1">Password</label>
-                                        <input 
-                                            type="password" 
-                                            className="w-full border rounded p-2 text-sm"
-                                            value={adminPasswordInput}
-                                            onChange={(e) => setAdminPasswordInput(e.target.value)}
-                                            placeholder="Enter admin password"
-                                        />
-                                    </div>
-                                    {adminError && <p className="text-xs text-red-600">Incorrect password. Please try again.</p>}
-                                    <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2 rounded-lg hover:bg-indigo-700 transition">
-                                        Login to Admin Panel
-                                    </button>
-                                </form>
-                            </div>
-                        )}
-                        {currentView === 'admin' && isAdminUnlocked && <AdminView applications={applications} setApplications={setApplications} />}
-                    </main>
-
-                    <footer className="bg-white border-t py-4 text-center text-xs text-slate-500">
-                        2027 Annual Leave Selection Portal &copy; Internal Company Use
-                    </footer>
-                </div>
-            );
-        }
-
-        function SummaryView({ applications }) {
-            const months = [
-                "January", "February", "March", "April", "May", "June", 
-                "July", "August", "September", "October", "November", "December"
-            ];
-            const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-            const getSelectionsForDate = (dateStr) => {
-                const results = [];
-                applications.forEach(app => {
-                    const applicantName = app.name || "Anonymous";
-                    ['first', 'second', 'third'].forEach(choiceKey => {
-                        const choice = app[choiceKey];
-                        if (choice && choice.start && choice.end) {
-                            if (dateStr >= choice.start && dateStr <= choice.end) {
-                                results.push({ name: applicantName, rank: choiceKey });
-                            }
-                        }
-                    });
-                });
-                return results;
+            const submitApplication = () => {
+                if (!appName.trim()) return alert("Name required");
+                const total = choices.c1.length + choices.c2.length + choices.c3.length;
+                if (total < 1 || total > 5) return alert("Select between 1 and 5 days total");
+                
+                const newApp = { 
+                    id: Date.now(), 
+                    name: appName.trim(), 
+                    c1: choices.c1, 
+                    c2: choices.c2, 
+                    c3: choices.c3,
+                    timestamp: new Date().toISOString()
+                };
+                
+                // Replace if same name exists
+                const filtered = data.applications.filter(a => a.name.toLowerCase() !== appName.trim().toLowerCase());
+                saveData({ ...data, applications: [...filtered, newApp] });
+                
+                alert("Application submitted successfully!");
+                setChoices({ c1: [], c2: [], c3: [] });
+                setAppName("");
+                setAlertMsg("");
+                setView("summary");
             };
 
-            return (
-                <div className="space-y-6">
-                    <div className="bg-white p-6 rounded-xl shadow-sm border">
-                        <h2 className="text-xl font-bold text-slate-800 mb-2">2027 Company Leave Summary</h2>
-                        <p className="text-sm text-slate-600 mb-6">
-                            Vertical month view showing workdays (Monday to Friday) and colleague choices: 
-                            <span className="inline-block w-3 h-3 bg-indigo-600 rounded-full mx-1 align-middle"></span> 1st Choice | 
-                            <span className="inline-block w-3 h-3 bg-blue-500 rounded-full mx-1 align-middle"></span> 2nd Choice | 
-                            <span className="inline-block w-3 h-3 bg-teal-500 rounded-full mx-1 align-middle"></span> 3rd Choice
-                        </p>
+            // --- Admin Logic ---
+            const [adminFilter, setAdminFilter] = useState("");
+            
+            const approveWinner = (app, choiceKey) => {
+                const dates = app[choiceKey];
+                if (!dates || dates.length === 0) return;
+                
+                // Remove these dates from existing winners (overwrite)
+                const cleanWinners = data.winners.filter(w => !dates.includes(w.date));
+                const newWinners = dates.map(d => ({ date: d, name: app.name, choice: choiceKey }));
+                
+                saveData({ ...data, winners: [...cleanWinners, ...newWinners] });
+                alert(`Approved ${app.name}'s ${choiceKey.toUpperCase()} for ${dates.length} days`);
+            };
 
+            const rejectWinner = (name, dates) => {
+                const cleanWinners = data.winners.filter(w => !(w.name === name && dates.includes(w.date)));
+                saveData({ ...data, winners: cleanWinners });
+            };
+
+            // Filtered apps for admin
+            const filteredApps = useMemo(() => {
+                if (!adminFilter) return data.applications;
+                return data.applications.filter(a => a.name.toLowerCase().includes(adminFilter.toLowerCase()));
+            }, [data.applications, adminFilter]);
+
+            // --- Render Views ---
+            
+            // Summary View
+            if (view === "summary") {
+                // Merge all selections for display
+                const allSelections = data.applications.flatMap(a => [
+                    ...a.c1.map(d => ({ date: d, name: a.name, type: "C1" })),
+                    ...a.c2.map(d => ({ date: d, name: a.name, type: "C2" })),
+                    ...a.c3.map(d => ({ date: d, name: a.name, type: "C3" }))
+                ]);
+
+                return (
+                    <div className="max-w-7xl mx-auto p-6">
+                        <div className="flex justify-between items-center mb-8 no-print">
+                            <h1 className="text-3xl font-bold text-gray-900">2027 Leave Summary</h1>
+                            <div className="space-x-3">
+                                <button onClick={() => setView("apply")} className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow">Apply for Leave</button>
+                                <button onClick={() => { setAdminAuth(false); setView("admin"); }} className="px-5 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 font-medium shadow">Admin Panel</button>
+                            </div>
+                        </div>
+
+                        {/* Horizontal Months Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                            {months.map((monthName, mIndex) => {
-                                const monthNum = mIndex + 1;
-                                const daysInMonth = new Date(2027, monthNum, 0).getDate();
+                            {MONTHS.map((_, i) => (
+                                <MonthCalendar 
+                                    key={i} 
+                                    monthIndex={i} 
+                                    selections={allSelections} 
+                                    winners={data.winners}
+                                    mode="view"
+                                />
+                            ))}
+                        </div>
+
+                        {/* Applicant List Table */}
+                        <div className="mt-12 bg-white rounded-xl shadow overflow-hidden">
+                            <div className="px-6 py-4 border-b bg-gray-50">
+                                <h2 className="text-xl font-bold text-gray-800">All Applications ({data.applications.length})</h2>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-gray-100 text-gray-600 uppercase">
+                                        <tr>
+                                            <th className="px-6 py-3">Applicant Name</th>
+                                            <th className="px-6 py-3">1st Choice</th>
+                                            <th className="px-6 py-3">2nd Choice</th>
+                                            <th className="px-6 py-3">3rd Choice</th>
+                                            <th className="px-6 py-3">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {data.applications.sort((a,b) => a.name.localeCompare(b.name)).map(app => {
+                                            const wonDates = data.winners.filter(w => w.name === app.name).map(w => w.date);
+                                            const status = wonDates.length > 0 ? `✅ ${wonDates.length} days approved` : "Pending";
+                                            return (
+                                                <tr key={app.id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4 font-medium text-gray-900">{app.name}</td>
+                                                    <td className="px-6 py-4 text-blue-600">{app.c1.join(", ") || "-"}</td>
+                                                    <td className="px-6 py-4 text-purple-600">{app.c2.join(", ") || "-"}</td>
+                                                    <td className="px-6 py-4 text-orange-600">{app.c3.join(", ") || "-"}</td>
+                                                    <td className="px-6 py-4 font-medium">{status}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                        {data.applications.length === 0 && (
+                                            <tr><td colSpan="5" className="px-6 py-8 text-center text-gray-500">No applications yet</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Apply View
+            if (view === "apply") {
+                const mySelections = [
+                    ...choices.c1.map(d => ({ date: d, name: appName, type: "C1" })),
+                    ...choices.c2.map(d => ({ date: d, name: appName, type: "C2" })),
+                    ...choices.c3.map(d => ({ date: d, name: appName, type: "C3" }))
+                ];
+                // Include others for conflict visualization
+                const allForDisplay = [
+                    ...mySelections,
+                    ...data.applications
+                        .filter(a => a.name.toLowerCase() !== appName.trim().toLowerCase())
+                        .flatMap(a => [
+                            ...a.c1.map(d => ({ date: d, name: a.name, type: "C1" })),
+                            ...a.c2.map(d => ({ date: d, name: a.name, type: "C2" })),
+                            ...a.c3.map(d => ({ date: d, name: a.name, type: "C3" }))
+                        ])
+                ];
+
+                const totalDays = choices.c1.length + choices.c2.length + choices.c3.length;
+
+                return (
+                    <div className="max-w-7xl mx-auto p-6">
+                        <button onClick={() => setView("summary")} className="mb-6 text-gray-600 hover:text-gray-900 flex items-center gap-2 no-print">← Back to Summary</button>
+                        
+                        <div className="bg-white rounded-xl shadow-lg p-8 mb-8 no-print">
+                            <h1 className="text-2xl font-bold mb-6 text-gray-900">Leave Application Form</h1>
+                            
+                            <div className="mb-6">
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Applicant Full Name *</label>
+                                <input 
+                                    type="text" 
+                                    value={appName}
+                                    onChange={(e) => setAppName(e.target.value)}
+                                    placeholder="Enter your full name"
+                                    className="w-full md:w-1/2 px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-lg"
+                                />
+                            </div>
+
+                            <div className="flex gap-2 mb-4 border-b pb-4">
+                                {[["c1","1st Choice","blue"],["c2","2nd Choice","purple"],["c3","3rd Choice","orange"]].map(([key,label,color]) => (
+                                    <button 
+                                        key={key}
+                                        onClick={() => setActiveChoice(key)}
+                                        className={`px-6 py-3 rounded-lg font-bold transition-all ${
+                                            activeChoice === key 
+                                            ? `bg-${color}-600 text-white shadow-md scale-105` 
+                                            : `bg-${color}-50 text-${color}-700 hover:bg-${color}-100`
+                                        }`}
+                                    >
+                                        {label} ({choices[key].length})
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="mb-4 p-3 bg-blue-50 rounded-lg text-blue-800 text-sm">
+                                Selecting <strong>{activeChoice === "c1" ? "1st" : activeChoice === "c2" ? "2nd" : "3rd"} Choice</strong>. 
+                                Total selected: <strong>{totalDays}/5</strong>. Click dates to toggle. Red cells indicate conflicts with others.
+                            </div>
+
+                            {alertMsg && (
+                                <div className="mb-4 p-4 bg-red-50 border-l-4 border-red-500 text-red-800 rounded animate-pulse">
+                                    {alertMsg}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Horizontal Calendar for Selection */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
+                            {MONTHS.map((_, i) => (
+                                <MonthCalendar 
+                                    key={i} 
+                                    monthIndex={i} 
+                                    selections={allForDisplay} 
+                                    winners={data.winners}
+                                    mode="apply"
+                                    applicantName={appName}
+                                    onToggle={handleDateToggle}
+                                />
+                            ))}
+                        </div>
+
+                        <div className="fixed bottom-6 right-6 no-print z-50">
+                            <button 
+                                onClick={submitApplication}
+                                disabled={totalDays === 0 || !appName.trim()}
+                                className="px-8 py-4 bg-green-600 text-white rounded-full shadow-xl hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-bold text-lg transition-transform hover:scale-105"
+                            >
+                                Submit Application ({totalDays} days)
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Admin View
+            if (view === "admin") {
+                if (!adminAuth) {
+                    return (
+                        <div className="min-h-screen flex items-center justify-center bg-gray-100">
+                            <div className="bg-white p-8 rounded-xl shadow-lg w-96 text-center">
+                                <h2 className="text-2xl font-bold mb-6 text-gray-900">Admin Access</h2>
+                                <input 
+                                    type="password" 
+                                    value={adminPassInput}
+                                    onChange={(e) => setAdminPassInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === "Enter" && setAdminPassInput(p => p === ADMIN_PASS ? (setAdminAuth(true), "") : alert("Wrong password"))}
+                                    placeholder="Enter password"
+                                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg mb-4 text-center text-lg tracking-widest"
+                                />
+                                <button 
+                                    onClick={() => adminPassInput === ADMIN_PASS ? (setAdminAuth(true), setAdminPassInput("")) : alert("Wrong password")}
+                                    className="w-full py-3 bg-gray-900 text-white rounded-lg font-bold hover:bg-gray-800"
+                                >
+                                    Unlock
+                                </button>
+                                <button onClick={() => setView("summary")} className="mt-4 text-gray-500 hover:text-gray-700 text-sm">Back to Summary</button>
+                            </div>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="max-w-7xl mx-auto p-6">
+                        <div className="flex justify-between items-center mb-8">
+                            <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
+                            <div className="flex gap-3">
+                                <button onClick={() => setView("summary")} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 font-medium">View Summary</button>
+                                <button onClick={() => { setAdminAuth(false); setAdminPassInput(""); }} className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 font-medium">Logout</button>
+                            </div>
+                        </div>
+
+                        {/* Filter Bar */}
+                        <div className="bg-white p-4 rounded-xl shadow-sm mb-6 flex items-center gap-4">
+                            <span className="font-bold text-gray-700">Filter by Name:</span>
+                            <input 
+                                type="text" 
+                                value={adminFilter}
+                                onChange={(e) => setAdminFilter(e.target.value)}
+                                placeholder="Type to filter applicants..."
+                                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                            <span className="text-sm text-gray-500">{filteredApps.length} / {data.applications.length} shown</span>
+                        </div>
+
+                        {/* Applications List with Actions */}
+                        <div className="space-y-4">
+                            {filteredApps.sort((a,b) => a.name.localeCompare(b.name)).map(app => {
+                                const wonDates = data.winners.filter(w => w.name === app.name).map(w => w.date);
+                                const isFullyApproved = wonDates.length >= (app.c1.length + app.c2.length + app.c3.length) && wonDates.length > 0;
                                 
                                 return (
-                                    <div key={monthName} className="border rounded-lg p-4 bg-slate-50/50 flex flex-col">
-                                        <h3 className="font-bold text-indigo-700 mb-3 border-b pb-2 text-center text-base">{monthName} 2027</h3>
-                                        <div className="space-y-1.5 overflow-y-auto max-h-96 pr-1">
-                                            {Array.from({ length: daysInMonth }, (_, dIndex) => {
-                                                const dayNum = dIndex + 1;
-                                                const formattedMonth = String(monthNum).padStart(2, '0');
-                                                const formattedDay = String(dayNum).padStart(2, '0');
-                                                const dateStr = `2027-${formattedMonth}-${formattedDay}`;
+                                    <div key={app.id} className={`bg-white rounded-xl shadow-sm border-l-4 p-6 ${isFullyApproved ? "border-green-500 bg-green-50/30" : "border-blue-500"}`}>
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-gray-900">{app.name}</h3>
+                                                <p className="text-sm text-gray-500">Applied: {new Date(app.timestamp).toLocaleString()}</p>
+                                            </div>
+                                            {isFullyApproved && <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-bold">✓ Finalized</span>}
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            {[["c1","1st Choice","blue"],["c2","2nd Choice","purple"],["c3","3rd Choice","orange"]].map(([key, label, color]) => {
+                                                const dates = app[key];
+                                                if (dates.length === 0) return null;
+                                                const alreadyWon = dates.every(d => wonDates.includes(d));
                                                 
-                                                const dateObj = new Date(dateStr);
-                                                const dayOfWeekIndex = dateObj.getDay();
-                                                const isWeekend = dayOfWeekIndex === 0 || dayOfWeekIndex === 6;
-                                                if (isWeekend) return null;
-
-                                                const dayOfWeekName = weekdays[dayOfWeekIndex];
-                                                const activeSelections = getSelectionsForDate(dateStr);
-
                                                 return (
-                                                    <div key={dateStr} className="text-xs flex items-center justify-between bg-white px-2 py-1.5 rounded border border-slate-100 shadow-sm">
-                                                        <span className="font-semibold text-slate-600 w-20 shrink-0">
-                                                            {dayOfWeekName}, {dayNum}
-                                                        </span>
-                                                        <div className="flex flex-wrap gap-1 justify-end flex-grow min-w-0">
-                                                            {activeSelections.length === 0 ? (
-                                                                <span className="text-slate-300 italic">-</span>
-                                                            ) : (
-                                                                activeSelections.map((sel, idx) => {
-                                                                    let colorBg = "bg-indigo-600 text-white";
-                                                                    if (sel.rank === 'second') colorBg = "bg-blue-500 text-white";
-                                                                    if (sel.rank === 'third') colorBg = "bg-teal-500 text-white";
-                                                                    return (
-                                                                        <span key={idx} className={`px-1.5 py-0.5 rounded text-[10px] font-medium truncate max-w-[120px] ${colorBg}`} title={`${sel.name} - ${sel.rank.toUpperCase()} choice`}>
-                                                                            {sel.name} ({sel.rank[0].toUpperCase()})
-                                                                        </span>
-                                                                    );
-                                                                })
-                                                            )}
+                                                    <div key={key} className={`p-4 rounded-lg border bg-${color}-50 border-${color}-200`}>
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <span className={`font-bold text-${color}-700`}>{label}</span>
+                                                            <span className="text-xs text-gray-500">{dates.length} days</span>
                                                         </div>
+                                                        <div className="text-sm text-gray-700 mb-3 break-words">{dates.join(", ")}</div>
+                                                        
+                                                        {!alreadyWon ? (
+                                                            <button 
+                                                                onClick={() => approveWinner(app, key)}
+                                                                className={`w-full py-2 bg-${color}-600 text-white rounded font-bold hover:bg-${color}-700 text-sm transition-colors`}
+                                                            >
+                                                                ✓ Approve This Choice
+                                                            </button>
+                                                        ) : (
+                                                            <button 
+                                                                onClick={() => rejectWinner(app.name, dates)}
+                                                                className="w-full py-2 bg-gray-200 text-gray-700 rounded font-bold hover:bg-red-100 hover:text-red-700 text-sm transition-colors"
+                                                            >
+                                                                ✕ Revoke Approval
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 );
                                             })}
@@ -198,264 +485,19 @@
                                     </div>
                                 );
                             })}
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        function ApplyView({ applications, setApplications }) {
-            const [name, setName] = useState('');
-            const [first, setFirst] = useState({ start: '', end: '' });
-            const [second, setSecond] = useState({ start: '', end: '' });
-            const [third, setThird] = useState({ start: '', end: '' });
-            const [message, setMessage] = useState({ text: '', type: '' });
-
-            const countWorkingDays = (startDate, endDate) => {
-                if (!startDate || !endDate) return 0;
-                let start = new Date(startDate);
-                let end = new Date(endDate);
-                if (start > end) return -1;
-
-                let count = 0;
-                let cur = new Date(start);
-                while (cur <= end) {
-                    const day = cur.getDay();
-                    if (day !== 0 && day !== 6) count++;
-                    cur.setDate(cur.getDate() + 1);
-                }
-                return count;
-            };
-
-            const validateChoice = (choice, label) => {
-                if (!choice.start && !choice.end) return true;
-                if (!choice.start || !choice.end) {
-                    setMessage({ text: `${label} choice must have both start and end date.`, type: 'error' });
-                    return false;
-                }
-                const days = countWorkingDays(choice.start, choice.end);
-                if (days < 1 || days > 5) {
-                    setMessage({ text: `${label} choice must be between 1 and 5 working days (Mon-Fri). Selected: ${days} days.`, type: 'error' });
-                    return false;
-                }
-                return true;
-            };
-
-            const handleSave = (e) => {
-                e.preventDefault();
-                setMessage({ text: '', type: '' });
-
-                if (!name.trim()) {
-                    setMessage({ text: 'Please enter your applicant name first.', type: 'error' });
-                    return;
-                }
-
-                if (!validateChoice(first, "1st")) return;
-                if (!validateChoice(second, "2nd")) return;
-                if (!validateChoice(third, "3rd")) return;
-
-                const newApp = {
-                    id: Date.now(),
-                    name: name.trim(),
-                    first,
-                    second,
-                    third,
-                    finalAssigned: null,
-                    updatedAt: new Date().toISOString()
-                };
-
-                const filtered = applications.filter(a => a.name.toLowerCase() !== name.trim().toLowerCase());
-                setApplications([...filtered, newApp]);
-                setMessage({ text: 'Leave wish choices successfully saved!', type: 'success' });
-            };
-
-            return (
-                <div className="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-sm border">
-                    <h2 className="text-xl font-bold text-slate-800 mb-1">Submit Your 2027 Leave Wishes</h2>
-                    <p className="text-sm text-slate-600 mb-6">
-                        Enter your name first, then provide your 1st, 2nd, and 3rd choices. Each choice must range from <strong>1 to 5 working days</strong> (Monday to Friday).
-                    </p>
-
-                    {message.text && (
-                        <div className={`p-3 rounded mb-4 text-sm ${message.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
-                            {message.text}
-                        </div>
-                    )}
-
-                    <form onSubmit={handleSave} className="space-y-6">
-                        <div className="p-4 border rounded-lg bg-slate-50 border-slate-200">
-                            <label className="block text-sm font-bold text-slate-700 mb-1">Applicant Full Name</label>
-                            <input 
-                                type="text" 
-                                required
-                                className="w-full border rounded p-2 text-sm bg-white"
-                                placeholder="e.g. John Doe"
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                            />
-                        </div>
-
-                        {[
-                            { label: '1st Priority Choice', state: first, setter: setFirst, bg: 'bg-indigo-50/30', border: 'border-indigo-100', titleColor: 'text-indigo-700' },
-                            { label: '2nd Priority Choice', state: second, setter: setSecond, bg: 'bg-blue-50/30', border: 'border-blue-100', titleColor: 'text-blue-700' },
-                            { label: '3rd Priority Choice', state: third, setter: setThird, bg: 'bg-teal-50/30', border: 'border-teal-100', titleColor: 'text-teal-700' }
-                        ].map((choice, idx) => (
-                            <div key={idx} className={`p-4 border rounded-lg ${choice.bg} ${choice.border}`}>
-                                <h3 className={`font-semibold ${choice.titleColor} mb-2`}>{choice.label}</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-600 mb-1">Start Date</label>
-                                        <input 
-                                            type="date" 
-                                            min="2027-01-01" 
-                                            max="2027-12-31" 
-                                            className="w-full border rounded p-2 text-sm"
-                                            value={choice.state.start}
-                                            onChange={(e) => choice.setter({...choice.state, start: e.target.value})}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-medium text-slate-600 mb-1">End Date</label>
-                                        <input 
-                                            type="date" 
-                                            min="2027-01-01" 
-                                            max="2027-12-31" 
-                                            className="w-full border rounded p-2 text-sm"
-                                            value={choice.state.end}
-                                            onChange={(e) => choice.setter({...choice.state, end: e.target.value})}
-                                        />
-                                    </div>
+                            
+                            {filteredApps.length === 0 && (
+                                <div className="text-center py-12 text-gray-500 bg-white rounded-xl shadow-sm">
+                                    {data.applications.length === 0 ? "No applications received yet" : "No applicants match your filter"}
                                 </div>
-                                <p className="text-xs text-slate-500 mt-2">Working days selected: {countWorkingDays(choice.state.start, choice.state.end)}</p>
-                            </div>
-                        ))}
-
-                        <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2 rounded-lg hover:bg-indigo-700 transition">
-                            Save Leave Selection Choices
-                        </button>
-                    </form>
-                </div>
-            );
+                            )}
+                        </div>
+                    </div>
+                );
+            }
         }
 
-        function AdminView({ applications, setApplications }) {
-            const handleFinalApproval = (appId, choiceName) => {
-                const updated = applications.map(app => {
-                    if (app.id === appId) {
-                        return { ...app, finalAssigned: app[choiceName] };
-                    }
-                    return app;
-                });
-                setApplications(updated);
-            };
-
-            const handleClearFinal = (appId) => {
-                const updated = applications.map(app => {
-                    if (app.id === appId) {
-                        return { ...app, finalAssigned: null };
-                    }
-                    return app;
-                });
-                setApplications(updated);
-            };
-
-            return (
-                <div className="bg-white p-6 rounded-xl shadow-sm border space-y-6">
-                    <div>
-                        <h2 className="text-xl font-bold text-slate-800 mb-1">Admin Dashboard - Manage Leave Results</h2>
-                        <p className="text-sm text-slate-600">Review employee submissions and select final confirmed dates.</p>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse text-sm">
-                            <thead>
-                                <tr className="bg-slate-100 border-b text-slate-700">
-                                    <th className="p-3">Applicant Name</th>
-                                    <th className="p-3">1st Choice</th>
-                                    <th className="p-3">2nd Choice</th>
-                                    <th className="p-3">3rd Choice</th>
-                                    <th className="p-3">Final Confirmed Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {applications.length === 0 ? (
-                                    <tr>
-                                        <td colSpan="5" className="p-4 text-center text-slate-400 italic">No leave submissions recorded yet.</td>
-                                    </tr>
-                                ) : (
-                                    applications.map(app => (
-                                        <tr key={app.id} className="border-b hover:bg-slate-50">
-                                            <td className="p-3 font-medium text-slate-800">{app.name}</td>
-                                            <td className="p-3 text-xs">
-                                                {app.first.start ? (
-                                                    <div>
-                                                        <span>{app.first.start} to {app.first.end}</span>
-                                                        <br />
-                                                        <button 
-                                                            onClick={() => handleFinalApproval(app.id, 'first')}
-                                                            className="mt-1 bg-indigo-100 text-indigo-700 hover:bg-indigo-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-medium transition"
-                                                        >
-                                                            Set as Final
-                                                        </button>
-                                                    </div>
-                                                ) : <span className="text-slate-400">None</span>}
-                                            </td>
-                                            <td className="p-3 text-xs">
-                                                {app.second.start ? (
-                                                    <div>
-                                                        <span>{app.second.start} to {app.second.end}</span>
-                                                        <br />
-                                                        <button 
-                                                            onClick={() => handleFinalApproval(app.id, 'second')}
-                                                            className="mt-1 bg-blue-100 text-blue-700 hover:bg-blue-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-medium transition"
-                                                        >
-                                                            Set as Final
-                                                        </button>
-                                                    </div>
-                                                ) : <span className="text-slate-400">None</span>}
-                                            </td>
-                                            <td className="p-3 text-xs">
-                                                {app.third.start ? (
-                                                    <div>
-                                                        <span>{app.third.start} to {app.third.end}</span>
-                                                        <br />
-                                                        <button 
-                                                            onClick={() => handleFinalApproval(app.id, 'third')}
-                                                            className="mt-1 bg-teal-100 text-teal-700 hover:bg-teal-600 hover:text-white px-2 py-0.5 rounded text-[10px] font-medium transition"
-                                                        >
-                                                            Set as Final
-                                                        </button>
-                                                    </div>
-                                                ) : <span className="text-slate-400">None</span>}
-                                            </td>
-                                            <td className="p-3 text-xs">
-                                                {app.finalAssigned && app.finalAssigned.start ? (
-                                                    <div className="bg-emerald-50 border border-emerald-200 p-2 rounded">
-                                                        <span className="font-semibold text-emerald-700 block">Confirmed:</span>
-                                                        <span>{app.finalAssigned.start} to {app.finalAssigned.end}</span>
-                                                        <br />
-                                                        <button 
-                                                            onClick={() => handleClearFinal(app.id)}
-                                                            className="mt-1 text-red-600 hover:underline text-[10px]"
-                                                        >
-                                                            Clear
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-200">Pending Selection</span>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            );
-        }
-
-        ReactDOM.render(<App />, document.getElementById('root'));
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
 </body>
 </html>
