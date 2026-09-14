@@ -34,6 +34,14 @@
         .tag-c4 { background: #10b981; color: white; }
         .tag-c5 { background: #ec4899; color: white; }
         .month-card { break-inside: avoid; }
+        /* Mini calendar for date picker */
+        .mini-cal { width: 280px; }
+        .mini-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+        .mini-day { padding: 6px 2px; text-align: center; font-size: 12px; cursor: pointer; border-radius: 4px; }
+        .mini-day:hover:not(.mini-disabled) { background: #e5e7eb; }
+        .mini-day.mini-selected { background: #3b82f6 !important; color: white !important; }
+        .mini-day.mini-disabled { color: #d1d5db; cursor: default; }
+        .mini-day.mini-weekend { color: #b91c1c; }
         @media print { .no-print { display: none !important; } }
     </style>
 </head>
@@ -45,8 +53,9 @@
 
         const YEAR = 2027;
         const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        const MONTH_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
         const WEEKDAYS_FULL = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-        const STORAGE_KEY = "leave_2027_v8";
+        const STORAGE_KEY = "leave_2027_v9";
         const ADMIN_PASS = "7851";
         const CHOICE_KEYS = ["c1","c2","c3","c4","c5"];
         const CHOICE_LABELS = ["1st Choice","2nd Choice","3rd Choice","4th Choice","5th Choice"];
@@ -59,7 +68,91 @@
         const fmtDate = (d, mi) => `${YEAR}-${String(mi+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const parseDate = (str) => { const p = str.split('-'); return { y: +p[0], m: +p[1]-1, d: +p[2] }; };
 
-        // --- Month Calendar Component ---
+        // Parse short format like "04Sep-08Sep" or "04Sep"
+        const parseShortFormat = (input) => {
+            const cleaned = input.trim();
+            if (!cleaned) return [];
+            // Range: 04Sep-08Sep or 04Sep-08Oct
+            const rangeMatch = cleaned.match(/^(\d{1,2})(\w{3})\s*[-–to]\s*(\d{1,2})(\w{3})$/i);
+            if (rangeMatch) {
+                const startDay = parseInt(rangeMatch[1]);
+                const startMonStr = rangeMatch[2].toLowerCase();
+                const endDay = parseInt(rangeMatch[3]);
+                const endMonStr = rangeMatch[4].toLowerCase();
+                const startMi = MONTH_SHORT.findIndex(m => m.toLowerCase() === startMonStr);
+                const endMi = MONTH_SHORT.findIndex(m => m.toLowerCase() === endMonStr);
+                if (startMi === -1 || endMi === -1) return [];
+                const dates = [];
+                let curMi = startMi, curD = startDay;
+                const maxIter = 40;
+                let iter = 0;
+                while (iter < maxIter) {
+                    dates.push(fmtDate(curD, curMi));
+                    if (curMi === endMi && curD === endDay) break;
+                    curD++;
+                    if (curD > getDaysInMonth(curMi)) { curD = 1; curMi++; }
+                    if (curMi > 11) break;
+                    iter++;
+                }
+                return dates;
+            }
+            // Single: 04Sep
+            const singleMatch = cleaned.match(/^(\d{1,2})(\w{3})$/i);
+            if (singleMatch) {
+                const day = parseInt(singleMatch[1]);
+                const monStr = singleMatch[2].toLowerCase();
+                const mi = MONTH_SHORT.findIndex(m => m.toLowerCase() === monStr);
+                if (mi === -1) return [];
+                return [fmtDate(day, mi)];
+            }
+            return [];
+        };
+
+        // --- Mini Calendar Picker Component ---
+        const MiniCalendar = ({ selectedDates, onToggleDate, weekendBlocked }) => {
+            const [viewMonth, setViewMonth] = useState(0);
+
+            const daysInMonth = getDaysInMonth(viewMonth);
+            const firstOffset = getDayOfWeekSunFirst(1, viewMonth);
+            const cells = [];
+
+            for (let p = 0; p < firstOffset; p++) {
+                cells.push(<div key={`p${p}`} className="mini-day mini-disabled"></div>);
+            }
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = fmtDate(d, viewMonth);
+                const we = isWeekend(d, viewMonth);
+                const isSel = selectedDates.includes(dateStr);
+                const isDis = we && weekendBlocked;
+                let cls = "mini-day";
+                if (we) cls += " mini-weekend";
+                if (isSel) cls += " mini-selected";
+                if (isDis) cls += " mini-disabled";
+
+                cells.push(
+                    <div key={d} className={cls} onClick={() => !isDis && onToggleDate(dateStr)}>
+                        {d}
+                    </div>
+                );
+            }
+
+            return (
+                <div className="mini-cal bg-white border rounded-lg p-3 shadow-sm mt-2">
+                    <div className="flex justify-between items-center mb-2">
+                        <button onClick={() => setViewMonth(v => v > 0 ? v-1 : 11)} className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200 text-sm font-bold">◀</button>
+                        <span className="font-bold text-sm text-gray-800">{MONTHS[viewMonth]} {YEAR}</span>
+                        <button onClick={() => setViewMonth(v => v < 11 ? v+1 : 0)} className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200 text-sm font-bold">▶</button>
+                    </div>
+                    <div className="mini-cal-grid mb-1">
+                        {WEEKDAYS_FULL.map(w => <div key={w} className={`text-[10px] font-bold text-center ${w==='Sun'||w==='Sat'?'text-red-400':'text-gray-500'}`}>{w.charAt(0)}</div>)}
+                    </div>
+                    <div className="mini-cal-grid">{cells}</div>
+                </div>
+            );
+        };
+
+        // --- Main Calendar Component ---
         const MonthCal = ({ monthIndex, apps, winners, mode, currentUser, activeChoice, onToggle, weekendRestricted }) => {
             const daysInMonth = getDaysInMonth(monthIndex);
             const firstDayOffset = getDayOfWeekSunFirst(1, monthIndex);
@@ -76,7 +169,6 @@
                 const isWinner = winners.some(w => w.date === dateStr);
                 const winnerName = isWinner ? winners.find(w => w.date === dateStr)?.name : null;
 
-                // Collect ALL selections from all applicants
                 const selections = [];
                 apps.forEach(app => {
                     CHOICE_KEYS.forEach((ck, ci) => {
@@ -86,25 +178,13 @@
                     });
                 });
 
-                // Amendment 1: Only check conflict against OTHER people's choices (same or different choice doesn't matter)
-                // But for current user, only highlight their ACTIVE choice selection
-                const mySel = currentUser ? selections.find(s => s.name.toLowerCase() === currentUser.toLowerCase() && s.type.toLowerCase() === activeChoice.replace('c','c')) : null;
-                // Actually match by activeChoice key directly
                 const myActiveSel = currentUser ? (() => {
                     const app = apps.find(a => a.name.toLowerCase() === currentUser.toLowerCase());
                     if (!app || !app[activeChoice]) return null;
                     return app[activeChoice].includes(dateStr) ? { type: activeChoice.toUpperCase() } : null;
                 })() : null;
 
-                // For apply mode: check if THIS date is in current user's ACTIVE choice
-                const isInMyActiveChoice = currentUser && (() => {
-                    // We need to read from local state, but we receive it via props indirectly
-                    // Instead, we'll pass selectedDatesForActive as prop
-                    return false; // handled below via selectedDatesForActive
-                })();
-
                 const others = selections.filter(s => !currentUser || s.name.toLowerCase() !== currentUser.toLowerCase());
-                // Amendment 3: Still show conflict visually but no alert - just visual indicator
                 const hasConflict = mode === 'apply' && others.length > 0 && !isWinner;
 
                 let cellClass = "day-cell";
@@ -117,14 +197,9 @@
                 const canClick = mode === 'apply' && !isWinner && !isBlocked;
 
                 cells.push(
-                    <div key={d}
-                         className={cellClass}
-                         onClick={() => canClick && onToggle(dateStr)}>
+                    <div key={d} className={cellClass} onClick={() => canClick && onToggle(dateStr)}>
                         <div className="font-bold text-gray-700">{d}</div>
-
                         {isWinner && <div className="tag tag-winner">✓ {winnerName}</div>}
-
-                        {/* Summary mode: show all applicants */}
                         {!isWinner && mode === 'view' && selections.slice(0, 4).map((s, i) => (
                             <div key={i} className={`tag tag-${s.type.toLowerCase()}`} title={`${s.name} (${s.type})`}>
                                 {s.name.split(' ')[0]}
@@ -133,15 +208,10 @@
                         {!isWinner && mode === 'view' && selections.length > 4 && (
                             <div className="text-[9px] text-gray-500 mt-1">+{selections.length - 4}</div>
                         )}
-
-                        {/* Apply mode: show "You" tag if in active choice */}
                         {mode === 'apply' && myActiveSel && !isWinner && (
                             <div className={`tag tag-${activeChoice}`}>You</div>
                         )}
-                        {/* Amendment 3: Just show "Conflict" text, no blocking */}
-                        {hasConflict && (
-                            <div className="text-[9px] text-red-600 font-bold mt-1">Conflict</div>
-                        )}
+                        {hasConflict && <div className="text-[9px] text-red-600 font-bold mt-1">Conflict</div>}
                     </div>
                 );
             }
@@ -176,103 +246,92 @@
             };
 
             // --- APPLICATION STATE ---
-            // Amendment 1 & 2: Each choice is independent, up to 5 choices, each max 5 days
             const [appName, setAppName] = useState("");
             const [choices, setChoices] = useState({ c1: [], c2: [], c3: [], c4: [], c5: [] });
             const [activeChoice, setActiveChoice] = useState("c1");
             const [manualInput, setManualInput] = useState({ c1: "", c2: "", c3: "", c4: "", c5: "" });
+            const [showMiniCal, setShowMiniCal] = useState(false);
 
             const activeCount = choices[activeChoice]?.length || 0;
-            // Weekend restriction: only when active choice reaches 5 days
             const weekendRestricted = activeCount >= 5;
 
-            const parseManualRange = (input) => {
-                const cleaned = input.trim();
-                if (!cleaned) return [];
-                const isoMatch = cleaned.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|-|–)\s*(\d{4}-\d{2}-\d{2})/i);
-                if (isoMatch) {
-                    const start = parseDate(isoMatch[1]);
-                    const end = parseDate(isoMatch[2]);
-                    const dates = [];
-                    let cur = new Date(start.y, start.m, start.d);
-                    const endDate = new Date(end.y, end.m, end.d);
-                    while (cur <= endDate) {
-                        const mi = cur.getMonth();
-                        const dd = cur.getDate();
-                        if (cur.getFullYear() === YEAR) dates.push(fmtDate(dd, mi));
-                        cur.setDate(cur.getDate() + 1);
-                    }
-                    return dates;
+            // Amendment 2: Load existing application when name matches
+            useEffect(() => {
+                if (!appName.trim()) return;
+                const existing = data.applications.find(a => a.name.toLowerCase() === appName.trim().toLowerCase());
+                if (existing) {
+                    setChoices({
+                        c1: existing.c1 || [], c2: existing.c2 || [], c3: existing.c3 || [],
+                        c4: existing.c4 || [], c5: existing.c5 || []
+                    });
                 }
-                const singleIso = cleaned.match(/^(\d{4}-\d{2}-\d{2})$/);
-                if (singleIso) {
-                    const p = parseDate(singleIso[1]);
-                    if (p.y === YEAR) return [fmtDate(p.d, p.m)];
+            }, [appName, data.applications]);
+
+            const handleMiniCalToggle = (dateStr) => {
+                if (!appName.trim()) { alert("Enter your name first!"); return; }
+                const cur = [...(choices[activeChoice] || [])];
+                const idx = cur.indexOf(dateStr);
+                if (idx === -1) {
+                    if (cur.length >= MAX_DAYS_PER_CHOICE) { alert(`Max ${MAX_DAYS_PER_CHOICE} days per choice.`); return; }
+                    cur.push(dateStr);
+                } else {
+                    cur.splice(idx, 1);
                 }
-                return [];
+                cur.sort();
+                setChoices({ ...choices, [activeChoice]: cur });
             };
 
             const handleManualSubmit = () => {
                 if (!appName.trim()) { alert("Enter your name first!"); return; }
-                const dates = parseManualRange(manualInput[activeChoice]);
-                if (dates.length === 0) { alert("Invalid format. Use: 2027-01-04 to 2027-01-08"); return; }
+                const dates = parseShortFormat(manualInput[activeChoice]);
+                if (dates.length === 0) { alert("Invalid format. Use: 04Sep-08Sep or 04Sep"); return; }
 
-                // Amendment 1: Only validate against THIS choice's limit
                 const currentChoiceDates = choices[activeChoice] || [];
                 const merged = [...new Set([...currentChoiceDates, ...dates])];
                 if (merged.length > MAX_DAYS_PER_CHOICE) {
-                    alert(`Max ${MAX_DAYS_PER_CHOICE} days per choice. This choice already has ${currentChoiceDates.length} days.`);
+                    alert(`Max ${MAX_DAYS_PER_CHOICE} days per choice. Currently ${currentChoiceDates.length} days selected.`);
                     return;
                 }
 
-                // Weekend check at 5 days for this choice
                 if (merged.length === 5) {
                     const hasWeekend = merged.some(ds => { const p = parseDate(ds); return isWeekend(p.d, p.m); });
                     if (hasWeekend) { alert("Cannot include weekends when a single choice reaches 5 days."); return; }
                 }
 
-                const nc = { ...choices, [activeChoice]: merged.sort() };
-                setChoices(nc);
+                setChoices({ ...choices, [activeChoice]: merged.sort() });
                 setManualInput({ ...manualInput, [activeChoice]: "" });
             };
 
-            const handleToggle = (dateStr) => {
+            const handleMainCalToggle = (dateStr) => {
                 if (!appName.trim()) { alert("Enter your name first!"); return; }
                 const p = parseDate(dateStr);
                 const we = isWeekend(p.d, p.m);
-
-                // Block weekend only if this choice already has 4 days (adding makes 5)
-                if (we && activeCount >= 4) {
-                    alert("Weekends cannot be selected when this choice reaches 5 days.");
-                    return;
-                }
+                if (we && activeCount >= 4) { alert("Weekends cannot be selected when this choice reaches 5 days."); return; }
 
                 const cur = [...(choices[activeChoice] || [])];
                 const idx = cur.indexOf(dateStr);
-
                 if (idx === -1) {
-                    // Amendment 1: Only check THIS choice's limit
-                    if (cur.length >= MAX_DAYS_PER_CHOICE) {
-                        alert(`Max ${MAX_DAYS_PER_CHOICE} days per choice.`);
-                        return;
-                    }
+                    if (cur.length >= MAX_DAYS_PER_CHOICE) { alert(`Max ${MAX_DAYS_PER_CHOICE} days per choice.`); return; }
                     cur.push(dateStr);
-                    cur.sort();
-                    setChoices({ ...choices, [activeChoice]: cur });
                 } else {
                     cur.splice(idx, 1);
-                    setChoices({ ...choices, [activeChoice]: cur });
+                }
+                cur.sort();
+                setChoices({ ...choices, [activeChoice]: cur });
+            };
+
+            // Amendment 2: Clear specific choice
+            const clearChoice = (key) => {
+                if (confirm(`Clear all dates in ${CHOICE_LABELS[CHOICE_KEYS.indexOf(key)]}?`)) {
+                    setChoices({ ...choices, [key]: [] });
                 }
             };
 
             const submitApp = () => {
                 if (!appName.trim()) return alert("Name required");
-
-                // Validate: at least one choice must have dates
                 const totalAll = CHOICE_KEYS.reduce((sum, k) => sum + (choices[k]?.length || 0), 0);
                 if (totalAll === 0) return alert("Select at least 1 day in any choice");
 
-                // Final weekend validation per choice
                 for (const k of CHOICE_KEYS) {
                     const dates = choices[k] || [];
                     if (dates.length === 5) {
@@ -304,6 +363,7 @@
                 setAppName("");
                 setManualInput({ c1: "", c2: "", c3: "", c4: "", c5: "" });
                 setActiveChoice("c1");
+                setShowMiniCal(false);
                 setView("summary");
             };
 
@@ -372,17 +432,17 @@
 
             // ==================== APPLY VIEW ====================
             if (view === "apply") {
-                // Build a fake app entry for current user so MonthCal can detect "myActiveSel"
                 const myFakeApp = appName.trim() ? {
                     name: appName.trim(),
                     c1: choices.c1, c2: choices.c2, c3: choices.c3, c4: choices.c4, c5: choices.c5
                 } : null;
 
-                // Merge fake app into apps list for calendar display (only for highlighting active choice)
                 const appsForCal = appName.trim() ? (() => {
                     const base = data.applications.filter(a => a.name.toLowerCase() !== appName.trim().toLowerCase());
                     return [...base, myFakeApp];
                 })() : data.applications;
+
+                const existingApp = appName.trim() ? data.applications.find(a => a.name.toLowerCase() === appName.trim().toLowerCase()) : null;
 
                 return (
                     <div className="max-w-[1600px] mx-auto p-4 md:p-6">
@@ -396,12 +456,18 @@
                                 <input type="text" value={appName} onChange={(e) => setAppName(e.target.value)}
                                     placeholder="Type your full name here"
                                     className="w-full md:w-1/2 px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none text-lg" />
+                                {/* Amendment 2: Show if editing existing */}
+                                {existingApp && (
+                                    <div className="mt-2 text-sm text-yellow-700 bg-yellow-50 px-3 py-2 rounded-lg border border-yellow-200">
+                                        📝 Editing existing application (v{existingApp.version}). Changes will replace your previous submission.
+                                    </div>
+                                )}
                             </div>
 
-                            {/* Amendment 2: 5 Choice Tabs */}
+                            {/* 5 Choice Tabs */}
                             <div className="flex flex-wrap gap-2 mb-4">
                                 {CHOICE_KEYS.map((k, i) => (
-                                    <button key={k} onClick={() => setActiveChoice(k)}
+                                    <button key={k} onClick={() => { setActiveChoice(k); setShowMiniCal(false); }}
                                         className={`px-4 py-2.5 rounded-lg font-bold text-sm transition-all ${
                                             activeChoice === k
                                             ? `bg-${CHOICE_COLORS[i]}-600 text-white shadow-md ring-2 ring-offset-2 ring-${CHOICE_COLORS[i]}-400`
@@ -412,22 +478,46 @@
                                 ))}
                             </div>
 
-                            {/* Manual Date Input */}
+                            {/* Amendment 2: Adjust / Cancel buttons for active choice */}
+                            <div className="flex flex-wrap gap-2 mb-4">
+                                <button onClick={() => setShowMiniCal(!showMiniCal)}
+                                    className="px-4 py-2 bg-gray-700 text-white rounded-lg text-sm font-bold hover:bg-gray-800">
+                                    📅 {showMiniCal ? 'Hide' : 'Show'} Mini Calendar
+                                </button>
+                                <button onClick={() => clearChoice(activeChoice)}
+                                    disabled={!choices[activeChoice] || choices[activeChoice].length === 0}
+                                    className="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-bold hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed">
+                                    ✕ Clear {CHOICE_LABELS[CHOICE_KEYS.indexOf(activeChoice)].split(' ')[0]} Choice
+                                </button>
+                            </div>
+
+                            {/* Mini Calendar Picker (Amendment 1) */}
+                            {showMiniCal && (
+                                <div className="mb-4">
+                                    <MiniCalendar
+                                        selectedDates={choices[activeChoice] || []}
+                                        onToggleDate={handleMiniCalToggle}
+                                        weekendBlocked={weekendRestricted}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Text Input with short format (Amendment 1) */}
                             <div className="mb-4 p-4 bg-gray-50 rounded-lg border">
                                 <label className="block text-sm font-bold text-gray-700 mb-2">
-                                    Type date range for <span className={`text-${CHOICE_COLORS[CHOICE_KEYS.indexOf(activeChoice)]}-600`}>{CHOICE_LABELS[CHOICE_KEYS.indexOf(activeChoice)]}</span>:
+                                    Or type dates for <span className={`text-${CHOICE_COLORS[CHOICE_KEYS.indexOf(activeChoice)]}-600`}>{CHOICE_LABELS[CHOICE_KEYS.indexOf(activeChoice)]}</span>:
                                 </label>
                                 <div className="flex gap-2">
                                     <input type="text" value={manualInput[activeChoice]}
                                         onChange={(e) => setManualInput({...manualInput, [activeChoice]: e.target.value})}
-                                        placeholder="e.g. 2027-01-04 to 2027-01-08"
+                                        placeholder="e.g. 04Sep-08Sep or 04Sep"
                                         className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
                                     <button onClick={handleManualSubmit}
                                         className="px-4 py-2 bg-gray-800 text-white rounded-lg font-bold text-sm hover:bg-gray-900">
                                         Add
                                     </button>
                                 </div>
-                                <p className="text-xs text-gray-500 mt-2">Each choice allows up to {MAX_DAYS_PER_CHOICE} days independently. Weekends blocked only at 5 days per choice.</p>
+                                <p className="text-xs text-gray-500 mt-2">Format: DDmmm-DDmmm (e.g. 04Sep-08Sep) or DDmmm (e.g. 04Sep). Each choice: max {MAX_DAYS_PER_CHOICE} days independently.</p>
                             </div>
 
                             <div className="text-sm text-gray-600 mb-3">
@@ -439,11 +529,12 @@
                             </div>
                         </div>
 
+                        {/* Main Full Calendar */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-20">
                             {MONTHS.map((_, i) => (
                                 <MonthCal key={i} monthIndex={i} apps={appsForCal} winners={data.winners}
                                     mode="apply" currentUser={appName} activeChoice={activeChoice}
-                                    onToggle={handleToggle} weekendRestricted={weekendRestricted} />
+                                    onToggle={handleMainCalToggle} weekendRestricted={weekendRestricted} />
                             ))}
                         </div>
 
@@ -451,7 +542,7 @@
                             <button onClick={submitApp}
                                 disabled={!appName.trim() || CHOICE_KEYS.every(k => !choices[k] || choices[k].length === 0)}
                                 className="px-8 py-4 bg-green-600 text-white rounded-full shadow-2xl hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-lg transition-transform hover:scale-105 active:scale-95">
-                                Submit Application
+                                {existingApp ? 'Update Application' : 'Submit Application'}
                             </button>
                         </div>
                     </div>
@@ -506,7 +597,6 @@
                             <span className="text-sm text-gray-500 whitespace-nowrap">{filteredApps.length} / {data.applications.length}</span>
                         </div>
 
-                        {/* Applicant Cards with 5 Choices */}
                         <div className="space-y-4 mb-12">
                             {filteredApps.map(app => {
                                 const wonDates = data.winners.filter(w => w.name === app.name).map(w => w.date);
@@ -570,7 +660,6 @@
                             )}
                         </div>
 
-                        {/* Live Summary Preview */}
                         <div className="border-t-4 border-gray-300 pt-8">
                             <h2 className="text-2xl font-bold text-gray-800 mb-4">Live Summary Preview</h2>
                             <div className="flex flex-wrap gap-3 mb-4 text-xs font-bold">
