@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2027 Annual Leave Wish Selection</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Mock initial 80 users or sample dataset
+        const INITIAL_USERS = Array.from({ length: 80 }, (_, i) => ({
+            id: i + 1,
+            name: i === 0 ? "Admin User" : `Employee ${i + 1}`,
+            role: i === 0 ? "admin" : "employee"
+        }));
+
+        function App() {
+            const [currentView, setCurrentView] = useState('summary'); // summary, apply, admin
+            const [currentUser, setCurrentUser] = useState(INITIAL_USERS[0]); // default to admin or switch
+            const [users, setUsers] = useState(INITIAL_USERS);
+            const [applications, setApplications] = useState(() => {
+                const saved = localStorage.getItem('leave_applications_2027');
+                return saved ? JSON.parse(saved) : [];
+            });
+
+            useEffect(() => {
+                localStorage.setItem('leave_applications_2027', JSON.stringify(applications));
+            }, [applications]);
+
+            return (
+                <div className="min-h-screen flex flex-col">
+                    {/* Header */}
+                    <header className="bg-indigo-600 text-white shadow-md">
+                        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                            <h1 className="text-xl font-bold flex items-center gap-2">
+                                <i data-lucide="calendar"></i> 2027 Annual Leave Planner
+                            </h1>
+                            <div className="flex items-center gap-4">
+                                <span className="text-sm bg-indigo-700 px-3 py-1 rounded-full">
+                                    Logged in as: <strong>{currentUser.name}</strong> ({currentUser.role.toUpperCase()})
+                                </span>
+                                <select 
+                                    className="bg-indigo-500 text-white text-sm rounded px-2 py-1 border border-indigo-400"
+                                    value={currentUser.id}
+                                    onChange={(e) => {
+                                        const found = users.find(u => u.id === Number(e.target.value));
+                                        setCurrentUser(found);
+                                    }}
+                                >
+                                    {users.map(u => (
+                                        <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                        {/* Navigation Tabs */}
+                        <div className="max-w-7xl mx-auto px-4 flex gap-2 border-t border-indigo-500 pt-2 pb-2">
+                            <button 
+                                onClick={() => setCurrentView('summary')}
+                                className={`px-4 py-2 rounded text-sm font-medium transition ${currentView === 'summary' ? 'bg-white text-indigo-600 shadow' : 'text-indigo-100 hover:bg-indigo-500'}`}
+                            >
+                                Summary Calendar
+                            </button>
+                            <button 
+                                onClick={() => setCurrentView('apply')}
+                                className={`px-4 py-2 rounded text-sm font-medium transition ${currentView === 'apply' ? 'bg-white text-indigo-600 shadow' : 'text-indigo-100 hover:bg-indigo-500'}`}
+                            >
+                                My Leave Application
+                            </button>
+                            {currentUser.role === 'admin' && (
+                                <button 
+                                    onClick={() => setCurrentView('admin')}
+                                    className={`px-4 py-2 rounded text-sm font-medium transition ${currentView === 'admin' ? 'bg-white text-indigo-600 shadow' : 'text-indigo-100 hover:bg-indigo-500'}`}
+                                >
+                                    Admin Panel
+                                </button>
+                            )}
+                        </div>
+                    </header>
+
+                    {/* Main Content Area */}
+                    <main className="flex-grow max-w-7xl w-full mx-auto p-4 md:p-6">
+                        {currentView === 'summary' && <SummaryView applications={applications} users={users} />}
+                        {currentView === 'apply' && <ApplyView currentUser={currentUser} applications={applications} setApplications={setApplications} />}
+                        {currentView === 'admin' && currentUser.role === 'admin' && <AdminView applications={applications} setApplications={setApplications} users={users} />}
+                    </main>
+
+                    <footer className="bg-white border-t py-4 text-center text-xs text-slate-500">
+                        2027 Annual Leave Selection Portal &copy; Internal Company Use
+                    </footer>
+                </div>
+            );
+        }
+
+        // --- SUMMARY VIEW COMPONENT ---
+        function SummaryView({ applications, users }) {
+            const months = [
+                "January", "February", "March", "April", "May", "June", 
+                "July", "August", "September", "October", "November", "December"
+            ];
+
+            // Helper to check if a date has any selections
+            const getSelectionsForDate = (dateStr) => {
+                const results = [];
+                applications.forEach(app => {
+                    const user = users.find(u => u.id === app.userId);
+                    const userName = user ? user.name : "Unknown";
+
+                    ['first', 'second', 'third'].forEach(choiceKey => {
+                        const choice = app[choiceKey];
+                        if (choice && choice.start && choice.end) {
+                            if (dateStr >= choice.start && dateStr <= choice.end) {
+                                results.push({ name: userName, rank: choiceKey });
+                            }
+                        }
+                    });
+                });
+                return results;
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-xl shadow-sm border">
+                        <h2 className="text-xl font-bold text-slate-800 mb-2">2027 Company Leave Summary</h2>
+                        <p className="text-sm text-slate-600 mb-4">
+                            Overview of all team member choices. Colors indicate priority: 
+                            <span className="inline-block w-3 h-3 bg-indigo-600 rounded-full mx-1"></span> 1st Choice | 
+                            <span className="inline-block w-3 h-3 bg-blue-400 rounded-full mx-1"></span> 2nd Choice | 
+                            <span className="inline-block w-3 h-3 bg-teal-400 rounded-full mx-1"></span> 3rd Choice
+                        </p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {months.map((monthName, mIndex) => {
+                                const monthNum = mIndex + 1;
+                                const daysInMonth = new Date(2027, monthNum, 0).getDate();
+                                
+                                return (
+                                    <div key={monthName} className="border rounded-lg p-4 bg-slate-50/50">
+                                        <h3 className="font-semibold text-indigo-700 mb-3 border-b pb-1">{monthName} 2027</h3>
+                                        <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
+                                            {Array.from({ length: daysInMonth }, (_, dIndex) => {
+                                                const dayNum = dIndex + 1;
+                                                const formattedMonth = String(monthNum).padStart(2, '0');
+                                                const formattedDay = String(dayNum).padStart(2, '0');
+                                                const dateStr = `2027-${formattedMonth}-${formattedDay}`;
+                                                
+                                                const dayOfWeek = new Date(dateStr).getDay();
+                                                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                                                if (isWeekend) return null; // Only show Mon-Fri
+
+                                                const activeSelections = getSelectionsForDate(dateStr);
+
+                                                return (
+                                                    <div key={dateStr} className="text-xs flex items-center justify-between bg-white px-2 py-1 rounded border border-slate-100">
+                                                        <span className="font-medium text-slate-500 w-16">{monthName.slice(0,3)} {dayNum}</span>
+                                                        <div className="flex flex-wrap gap-1 justify-end flex-grow">
+                                                            {activeSelections.length === 0 ? (
+                                                                <span className="text-slate-300 italic">No selection</span>
+                                                            ) : (
+                                                                activeSelections.map((sel, idx) => {
+                                                                    let colorBg = "bg-indigo-600 text-white";
+                                                                    if (sel.rank === 'second') colorBg = "bg-blue-400 text-white";
+                                                                    if (sel.rank === 'third') colorBg = "bg-teal-400 text-white";
+                                                                    return (
+                                                                        <span key={idx} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${colorBg}`} title={`${sel.rank.toUpperCase()} choice`}>
+                                                                            {sel.name} ({sel.rank[0].toUpperCase()})
+                                                                        </span>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // --- APPLICATION VIEW COMPONENT ---
+        function ApplyView({ currentUser, applications, setApplications }) {
+            const existingApp = applications.find(a => a.userId === currentUser.id) || {
+                userId: currentUser.id,
+                first: { start: '', end: '' },
+                second: { start: '', end: '' },
+                third: { start: '', end: '' }
+            };
+
+            const [first, setFirst] = useState(existingApp.first);
+            const [second, setSecond] = useState(existingApp.second);
+            const [third, setThird] = useState(existingApp.third);
+            const [message, setMessage] = useState({ text: '', type: '' });
+
+            // Helper to count working days (Mon-Fri)
+            const countWorkingDays = (startDate, endDate) => {
+                if (!startDate || !endDate) return 0;
+                let start = new Date(startDate);
+                let end = new Date(endDate);
+                if (start > end) return -1;
+
+                let count = 0;
+                let cur = new Date(start);
+                while (cur <= end) {
+                    const day = cur.getDay();
+                    if (day !== 0 && day !== 6) count++;
+                    cur.setDate(cur.getDate() + 1);
+                }
+                return count;
+            };
+
+            const validateChoice = (choice, label) => {
+                if (!choice.start && !choice.end) return true; // optional or handled
+                if (!choice.start || !choice.end) {
+                    setMessage({ text: `${label} choice must have both start and end date.`, type: 'error' });
+                    return false;
+                }
+                const days = countWorkingDays(choice.start, choice.end);
+                if (days < 1 || days > 5) {
+                    setMessage({ text: `${label} choice must be between 1 and 5 working days (Monday to Friday). Selected: ${days} days.`, type: 'error' });
+                    return false;
+                }
+                return true;
+            };
+
+            const handleSave = (e) => {
+                e.preventDefault();
+                setMessage({ text: '', type: '' });
+
+                if (!validateChoice(first, "1st")) return;
+                if (!validateChoice(second, "2nd")) return;
+                if (!validateChoice(third, "3rd")) return;
+
+                const newApp = {
+                    userId: currentUser.id,
+                    first,
+                    second,
+                    third,
+                    updatedAt: new Date().toISOString()
+                };
+
+                const filtered = applications.filter(a => a.userId !== currentUser.id);
+                setApplications([...filtered, newApp]);
+                setMessage({ text: 'Leave wish choices successfully saved!', type: 'success' });
+            };
+
+            return (
+                <div className="max-w-2xl mx-auto bg-white p-6 rounded-xl shadow-sm border">
+                    <h2 className="text-xl font-bold text-slate-800 mb-1">Submit Your 2027 Leave Wishes</h2>
+                    <p className="text-sm text-slate-600 mb-6">
+                        Provide your 1st, 2nd, and 3rd choices. Each choice must range from <strong>1 to 5 working days</strong> (Monday to Friday).
+                    </p>
+
+                    {message.text && (
+                        <div className={`p-3 rounded mb-4 text-sm ${message.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                            {message.text}
+                        </div>
+                    )}
+
+                    <form onSubmit={handleSave} className="space-y-6">
+                        {/* 1st Choice */}
+                        <div className="p-4 border rounded-lg bg-indigo-50/30 border-indigo-100">
+                            <h3 className="font-semibold text-indigo-700 mb-2">1st Priority Choice</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">Start Date</label>
+                                    <input 
+                                        type="date" 
+                                        min="2027-01-01" 
+                                        max="2027-12-31" 
+                                        className="w-full border rounded p-2 text-sm"
+                                        value={first.start}
+                                        onChange={(e) => setFirst({...first, start: e.target.value})}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">End Date</label>
+                                    <input 
+                                        type="date" 
+                                        min="2027-01-01" 
+                                        max="2027-12-31" 
+                                        className="w-full border rounded p-2 text-sm"
+                                        value={first.end}
+                                        onChange={(e) => setFirst({...first, end: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-2">Working days selected: {countWorkingDays(first.start, first.end)}</p>
+                        </div>
+
+                        {/* 2nd Choice */}
+                        <div className="p-4 border rounded-lg bg-blue-50/30 border-blue-100">
+                            <h3 className="font-semibold text-blue-700 mb-2">2nd Priority Choice</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">Start Date</label>
+                                    <input 
+                                        type="date" 
+                                        min="2027-01-01" 
+                                        max="2027-12-31" 
+                                        className="w-full border rounded p-2 text-sm"
+                                        value={second.start}
+                                        onChange={(e) => setSecond({...second, start: e.target.value})}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">End Date</label>
+                                    <input 
+                                        type="date" 
+                                        min="2027-01-01" 
+                                        max="2027-12-31" 
+                                        className="w-full border rounded p-2 text-sm"
+                                        value={second.end}
+                                        onChange={(e) => setSecond({...second, end: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-2">Working days selected: {countWorkingDays(second.start, second.end)}</p>
+                        </div>
+
+                        {/* 3rd Choice */}
+                        <div className="p-4 border rounded-lg bg-teal-50/30 border-teal-100">
+                            <h3 className="font-semibold text-teal-700 mb-2">3rd Priority Choice</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">Start Date</label>
+                                    <input 
+                                        type="date" 
+                                        min="2027-01-01" 
+                                        max="2027-12-31" 
+                                        className="w-full border rounded p-2 text-sm"
+                                        value={third.start}
+                                        onChange={(e) => setThird({...third, start: e.target.value})}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-slate-600 mb-1">End Date</label>
+                                    <input 
+                                        type="date" 
+                                        min="2027-01-01" 
+                                        max="2027-12-31" 
+                                        className="w-full border rounded p-2 text-sm"
+                                        value={third.end}
+                                        onChange={(e) => setThird({...third, end: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-2">Working days selected: {countWorkingDays(third.start, third.end)}</p>
+                        </div>
+
+                        <button type="submit" className="w-full bg-indigo-600 text-white font-medium py-2 rounded-lg hover:bg-indigo-700 transition">
+                            Save Leave Selection Choices
+                        </button>
+                    </form>
+                </div>
+            );
+        }
+
+        // --- ADMIN VIEW COMPONENT ---
+        function AdminView({ applications, setApplications, users }) {
+            return (
+                <div className="bg-white p-6 rounded-xl shadow-sm border space-xl">
+                    <h2 className="text-xl font-bold text-slate-800 mb-1">Admin Dashboard - All Submissions</h2>
+                    <p className="text-sm text-slate-600 mb-6">Review choices submitted by all 80 staff members and assign final results.</p>
+
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse text-sm">
+                            <thead>
+                                <tr className="bg-slate-100 border-b text-slate-700">
+                                    <th className="p-3">Employee Name</th>
+                                    <th className="p-3">1st Choice</th>
+                                    <th className="p-3">2nd Choice</th>
+                                    <th className="p-3">3rd Choice</th>
+                                    <th className="p-3">Action / Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {users.map(user => {
+                                    const app = applications.find(a => a.userId === user.id);
+                                    return (
+                                        <tr key={user.id} className="border-b hover:bg-slate-50">
+                                            <td className="p-3 font-medium text-slate-800">{user.name}</td>
+                                            <td className="p-3 text-xs">
+                                                {app && app.first.start ? `${app.first.start} to ${app.first.end}` : <span className="text-slate-400">None</span>}
+                                            </td>
+                                            <td className="p-3 text-xs">
+                                                {app && app.second.start ? `${app.second.start} to ${app.second.end}` : <span className="text-slate-400">None</span>}
+                                            </td>
+                                            <td className="p-3 text-xs">
+                                                {app && app.third.start ? `${app.third.start} to ${app.third.end}` : <span className="text-slate-400">None</span>}
+                                            </td>
+                                            <td className="p-3">
+                                                <button 
+                                                    className="text-xs bg-slate-200 hover:bg-indigo-600 hover:text-white px-2.5 py-1 rounded transition"
+                                                    onClick={() => alert(`Reviewing details for ${user.name}`)}
+                                                >
+                                                    Manage Final
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
